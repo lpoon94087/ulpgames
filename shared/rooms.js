@@ -28,6 +28,9 @@ const db = getDatabase(initializeApp({
 let offset = 0;
 onValue(ref(db, '.info/serverTimeOffset'), s => { offset = s.val() || 0; });
 const now = () => Date.now() + offset;
+// For a game's own clocks: a local time as server time (moderator), and the server's now (viewer).
+export const toServer = t => t + offset;
+export const serverNow = () => now();
 
 const session = {
   get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
@@ -290,8 +293,12 @@ export function shareRoom({ game, onState, onStatus }) {
     if (c !== code) { leave(); watch(c); }
     return 'ok';
   }
+  // Keep the room's claim fresh while it's in use (at most every 10 minutes), so a game going for
+  // more than 12 hours can't have its code claimed by a new room.
+  let freshAt = 0;
   function send(state) {
     if (!code) return Promise.resolve();
+    if (Date.now() - freshAt > 600e3) { freshAt = Date.now(); update(ref(db, `rooms/${code}/owner`), { at: now() }).catch(() => {}); }
     return update(ref(db, `rooms/${code}/state`), { phase: 'shared', ...state, game });
   }
 

@@ -70,6 +70,7 @@
     <div class="turn" id="vTurn"></div>
     <div class="worth" id="vWorth"></div>
     <p class="center muted" id="vProgress" style="margin:0;font-size:18px"></p>
+    <div class="clock hidden" id="vClue"></div>
     <div class="puzzle" id="vWord"></div>
     <div class="banner" id="vBanner"></div>
   </section>
@@ -109,6 +110,23 @@
             <option value="40">40 points</option>
           </select>
         </div>
+        <div>
+          <label for="optLevel">Words</label>
+          <select id="optLevel">
+            <option value="all" selected>All words</option>
+            <option value="easy">Easy only</option>
+            <option value="hard">Harder (no easy words)</option>
+          </select>
+        </div>
+        <div>
+          <label for="optClueTime">Clue timer</label>
+          <select id="optClueTime">
+            <option value="0" selected>Off</option>
+            <option value="10">10 seconds a clue</option>
+            <option value="20">20 seconds a clue</option>
+            <option value="30">30 seconds a clue</option>
+          </select>
+        </div>
         <div id="boxRounds" class="hidden">
           <label for="optRounds">Rounds</label>
           <select id="optRounds">
@@ -121,6 +139,11 @@
       </div>
       <p class="muted" id="deckInfo" style="font-size:14px"></p>
       <button class="primary" id="btnStart" style="width:100%">Start game</button>
+      <div class="row hidden" id="editRow">
+        <button id="btnCancelEdit">Cancel</button>
+        <button class="primary" id="btnSaveEdit">Save changes</button>
+      </div>
+      <button id="btnUndo0" class="hidden" style="width:100%;margin-top:10px">Undo New game</button>
     </div>
   </section>
 
@@ -130,6 +153,7 @@
     <div class="turn" id="pTurn"></div>
     <div class="worth" id="pWorth"></div>
     <p class="center muted" id="pProgress" style="margin:0"></p>
+    <div class="clock hidden" id="pClue"></div>
     <div class="panel"><div class="puzzle" id="pWord"></div></div>
     <div class="actions">
       <button class="bad" id="btnWrong">Wrong</button>
