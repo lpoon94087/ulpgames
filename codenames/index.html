@@ -48,6 +48,22 @@
   </div>
 </div>
 
+<div id="howto" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="howTitle">
+  <div class="panel">
+    <h2 id="howTitle">How to <span>play</span></h2>
+    <ol style="padding-left:20px">
+      <li>Split into <b>Red</b> and <b>Blue</b>. Each team picks a <b>spymaster</b>, who opens <b>Spymaster</b> on their phone. Put the <b>Board</b> on a TV everyone can see.</li>
+      <li>To share one game, scan the QR code in the room dialog (tap the room code in the top corner), or type the code.</li>
+      <li>The team shown as <b>going first</b> starts. Its spymaster gives a one-word clue and a number, like "Ocean, 2".</li>
+      <li>The team picks cards on the board. Tap a card once to pick it and again to turn it. Their own colour: keep guessing. A neutral or the other team's card ends their turn. The black <b>assassin</b> loses the game at once.</li>
+      <li>The board shows whose turn it is; <b>End turn</b> passes it when a team stops guessing. A mis-tap? Turn the card back over, or use <b>Undo last card</b> in the menu.</li>
+      <li>The first team to find all its cards wins. <b>New game</b> in the menu deals again for every screen in the room.</li>
+    </ol>
+    <p class="muted" style="font-size:15px">Spymasters: no gestures, and no part of a word on the board in your clue.</p>
+    <button class="primary" id="btnHowClose" style="width:100%">Got it</button>
+  </div>
+</div>
+
 <div id="about" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
   <div class="panel">
     <h2 id="aboutTitle">Code<span>names</span></h2>
@@ -106,6 +122,7 @@
   <section id="key" class="hidden">
     <div class="cn-first" id="keyFirst"></div>
     <div class="cn-key" id="keyCard"></div>
+    <p class="muted center hidden" id="keyNote" style="font-size:14px;margin:0">The words show here once a board joins this room.</p>
     <label class="chip" style="align-self:center"><input type="checkbox" id="optKeyRemote"> Tap the key to turn cards on the board</label>
     <div class="cn-key-words">
       <span class="muted">Show words:</span>

@@ -5,7 +5,7 @@ import { $, ask, esc, shuffle, lines, keepAwake, initMenu, initAbout } from '../
 // Words come from the lists in lists/ (named in lists.json), picked on the start screen;
 // ?addon=WORD,WORD adds more. The revealed-card pictures are in img/,
 // listed in images.json. ?demo turns a random card every second, for showing the board off.
-const VERSION = '2.28', RELEASED = '2026-11-21';
+const VERSION = '2.29', RELEASED = '2026-11-21';
 
 const params = new URLSearchParams(location.search);
 const views = ['choose', 'board', 'key'];
@@ -60,9 +60,12 @@ const oneTag = () => local.get(ONE_TAG_STORE) !== false;
 const partsOf = w => w.split(/[\s-]+/).filter(Boolean);
 const squash = w => w.replace(/[\s\-'.]/g, '');
 const inside = (a, b) => { const [s, l] = a.length <= b.length ? [a, b] : [b, a]; return s.length >= 3 && (l.startsWith(s) || l.endsWith(s)); };
-function dealBoard() {
-  const out = [], used = new Set(), usedParts = new Set(), squashed = [], check = oneTag();
-  for (const { w, tags } of shuffle([...words])) {
+// spec: which lists to deal from ({ list, mix, oneTag }); this screen's own picks by default,
+// the room's for New game (see WORD LISTS).
+function dealBoard(spec = localSpec()) {
+  const pool = poolFor(spec);
+  const out = [], used = new Set(), usedParts = new Set(), squashed = [], check = spec.oneTag;
+  for (const { w, tags } of shuffle(pool.length >= 25 ? pool : [...words])) {
     const parts = partsOf(w), sq = squash(w);
     if (parts.some(x => usedParts.has(x))) continue;
     if (squashed.some(o => inside(o, sq))) continue;
@@ -72,7 +75,7 @@ function dealBoard() {
     out.push(w);
     if (out.length === 25) break;
   }
-  return { words: out, turned: Array(25).fill(0), gid: newGid() };
+  return { words: out, turned: Array(25).fill(0), gid: newGid(), side: null, spec };
 }
 function dealKey() {
   const first = Math.random() < .5 ? 'red' : 'blue', second = first === 'red' ? 'blue' : 'red';
@@ -86,9 +89,15 @@ const touch = () => local.set(ACTIVE_STORE, Date.now());
 function ensureGame() {
   if (stale && !key && !board) { key = dealKey(); board = dealBoard(); save(); }
   if (!key) { const k = local.get(KEY_STORE); key = validKey(k) ? { first: k.first, cells: k.cells } : dealKey(); local.set(KEY_STORE, key); }
-  if (!board) { const b = local.get(BOARD_STORE); board = validBoard(b) ? { words: b.words, turned: b.turned, gid: b.gid || newGid() } : dealBoard(); local.set(BOARD_STORE, board); }
+  if (!board) { const b = local.get(BOARD_STORE); board = validBoard(b) ? { words: b.words, turned: b.turned, gid: b.gid || newGid(), side: b.side || null, spec: b.spec || null } : dealBoard(); local.set(BOARD_STORE, board); }
 }
-const save = () => { local.set(BOARD_STORE, board); local.set(KEY_STORE, key); touch(); };
+// A game changed while this screen had no room (offline) is pushed to the room when it joins,
+// instead of the room's older game replacing it.
+let dirtyOffline = false;
+const save = () => {
+  local.set(BOARD_STORE, board); local.set(KEY_STORE, key); touch();
+  if (!(room && room.code && room.code())) dirtyOffline = true;
+};
 
 // ───────────────────────── BOARD ─────────────────────────
 // A face-down card is tan. Tap it when a team picks it and it turns to its colour from the key
@@ -178,9 +187,11 @@ function paint(card, color, instant = false) {
 }
 
 // The card picked by a first tap (-1: none). Only this screen sees it.
-let picked = -1;
+// The second tap must come at least PICK_GAP after the first: a nervous double-tap only picks.
+const PICK_GAP = 250;
+let picked = -1, pickedAt = 0;
 function pickCard(i) {
-  picked = i;
+  picked = i; pickedAt = Date.now();
   [...$('wordBoard').children].forEach((cell, j) => cell.firstChild.classList.toggle('picked', j === i));
 }
 document.addEventListener('click', e => { if (picked >= 0 && !e.target.closest('.cn-card')) pickCard(-1); });
@@ -197,7 +208,7 @@ function buildBoard() {
     card.className = 'cn-card color-0';
     card.innerHTML = '<div class="bg"></div><div class="fg"></div><div class="tint"></div><span class="word"></span>';
     card.querySelector('.word').textContent = word;
-    card.onclick = () => { if (demo) return; if (picked === i) { pickCard(-1); tap(i); } else pickCard(i); };
+    card.onclick = () => { if (demo) return; if (picked === i) { if (Date.now() - pickedAt >= PICK_GAP) { pickCard(-1); tap(i); } } else pickCard(i); };
     card.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && picked === i) pickCard(-1); });
     wrap.appendChild(card);
     el.appendChild(wrap);
@@ -214,8 +225,11 @@ function repaint() {
 function renderLeft() {
   if (!key || !board) return;
   const left = team => key.cells.filter((c, i) => c === team && !board.turned[i]).length;
-  const order = key.first === 'red' ? ['red', 'blue'] : ['blue', 'red'];
-  $('boardLeft').innerHTML = order.map(t => `<span class="cn-left ${t}">${t === 'red' ? 'Red' : 'Blue'} <b>${left(t)}</b></span>`).join('');
+  const order = key.first === 'red' ? ['red', 'blue'] : ['blue', 'red'], turn = sideNow(), ended = !!endOf(left);
+  $('boardLeft').innerHTML = order.map(t => `<span class="cn-left ${t}${t === turn && !ended ? ' turn' : ''}"${t === turn && !ended ? ' title="Their turn"' : ''}>${t === 'red' ? 'Red' : 'Blue'} <b>${left(t)}</b></span>`).join('')
+    + (ended ? '' : '<button class="cn-endturn" id="btnEndTurn" type="button">End turn</button>');
+  if (!ended) $('btnEndTurn').onclick = e => { e.stopPropagation(); endTurn(); };
+  renderTurnOnKey(ended);
   // Hidden for now: the note beside the counts ("Red goes first", or "The assassin has been found!").
   // To bring it back, uncomment these two lines.
   // const hit = key.cells.findIndex((c, i) => c === 'assassin' && board.turned[i]);
@@ -237,18 +251,36 @@ function checkFinale(left) {
   const game = board.words.join('|') + key.cells.join(), end = endOf(left);
   const was = finaleSeen;
   finaleSeen = { game, end };
+  // The series score: wins/<gid> is who won each game in this room. Set when a game ends, taken
+  // off again if a card is turned back and the game carries on.
+  // (Sent after this change has finished drawing: a write's echo replaces the board.)
+  const gid = board.gid;
+  if (was && was.game === game && was.end && !end) setTimeout(() => send({ [`wins/${gid}`]: null }));
+  if (end && was && was.game === game && !was.end) { const w = winnerOf(end); setTimeout(() => send({ [`wins/${gid}`]: w })); }
   if (!end) { if (was && was.game !== game) closeFinale(); return; }
   // First look, or nothing new, or the game had already ended (cards turned after a win, to
   // see them, never bring up a second finale, not even for the assassin).
   if (!was || was.game !== game || was.end) return;
   setTimeout(() => showFinale(end), 700);                     // after the card has flipped
 }
+function winnerOf(end) {
+  if (end !== 'assassin') return end;
+  const i = key.cells.indexOf('assassin'), t = board.turned[i];
+  return other(t && t.by ? t.by : sideNow());   // whoever turned the assassin loses
+}
+function seriesText() {
+  const w = last && last.wins && typeof last.wins === 'object' ? Object.values(last.wins) : [];
+  const n = t => w.filter(x => x === t).length;
+  return w.length ? `Series: Red ${n('red')} · Blue ${n('blue')}` : '';
+}
 function showFinale(end) {
   if ($('board').classList.contains('hidden')) return;   // board screens only
   const box = $('finale'), win = end !== 'assassin';
   box.className = `overlay cn-finale ${end}`;
   $('finaleText').textContent = win ? `${end === 'red' ? 'Red' : 'Blue'} wins!` : 'Assassin!';
-  $('finaleSub').textContent = win ? 'Every agent found.' : 'Game over.';
+  const series = () => seriesText();
+  $('finaleSub').textContent = win ? 'Every agent found.' : `Game over: ${winnerOf(end) === 'red' ? 'Red' : 'Blue'} wins.`;
+  setTimeout(() => { const t = series(); if (t) $('finaleSub').textContent += ` ${t}.`; }, 900);   // once the room has counted this win
   $('confetti').innerHTML = win ? Array.from({ length: 60 }, () => {
     const c = end === 'red' ? ['#d44d4d', '#ff8a80', '#fff'] : ['#4d7bd4', '#90b4ff', '#fff'];
     return `<i style="left:${Math.random() * 100}%;background:${c[Math.floor(Math.random() * 3)]};animation-delay:${(Math.random() * 1.5).toFixed(2)}s;animation-duration:${(2.5 + Math.random() * 2).toFixed(2)}s;transform:rotate(${Math.floor(Math.random() * 360)}deg)"></i>`;
@@ -268,11 +300,37 @@ $('btnFinaleNew').onclick = () => { closeFinale(); newGame({ askFirst: false });
 $('finale').addEventListener('click', e => { if (e.target === $('finale')) closeFinale(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFinale(); });
 
+// Whose turn it is (board.side; the team that goes first until a card changes it). Turning a card
+// that isn't the guessing team's own (a bystander, the other team's) ends their turn; End turn
+// passes it by hand. Each turned card remembers who turned it ({ at, by }), so turning it back
+// face down, or Undo last card, gives the turn back to that team.
+const other = t => t === 'red' ? 'blue' : 'red';
+const sideNow = () => board && (board.side === 'red' || board.side === 'blue') ? board.side : key ? key.first : 'red';
+function setSide(t) { board.side = t; send({ [`side/${board.gid}`]: t }); }
+function endTurn() { setSide(other(sideNow())); save(); renderLeft(); }
 // A card turned on this screen (or turned back face down): save it and tell the room.
+// The card and any change of turn go to the room in one write, before anything else is drawn:
+// the room's echo of a write replaces this screen's board, so the card has to be in it.
 function tap(i) {
-  board.turned[i] = board.turned[i] ? 0 : 1;
+  const was = board.turned[i], part = {};
+  if (was) {
+    board.turned[i] = 0;
+    if (was.by === 'red' || was.by === 'blue') board.side = was.by;
+  } else {
+    const by = sideNow();
+    board.turned[i] = { at: Date.now(), by };
+    if (key.cells[i] !== by && key.cells[i] !== 'assassin') board.side = other(by);
+  }
+  part[`turns/${board.gid}/${i}`] = board.turned[i];
+  if (board.side) part[`side/${board.gid}`] = board.side;
+  send(part);
   save(); repaint(); renderMarks(); renderLeft();
-  send({ [`turns/${board.gid}/${i}`]: board.turned[i] });
+}
+// Undo last card (menu): the most recently turned card goes face down again.
+function undoLast() {
+  let last = -1, at = -1;
+  board.turned.forEach((t, i) => { const when = t && typeof t === 'object' ? t.at : t ? 0 : -1; if (when > at) { at = when; last = i; } });
+  if (last >= 0) tap(last);
 }
 
 // Demo: every second a random face-down card turns.
@@ -283,9 +341,11 @@ function startDemo() {
   }, 1000);
 }
 
+let imagesLoading = false;
 function openBoard() {
   ensureGame(); freshFromPicker();
   mine.board = mine.key = true;
+  if (!imagesLoading) { imagesLoading = true; loadImages(); }   // board screens only: phones never show the pictures
   repaint(); renderLeft();
   if (params.has('demo') && !demo) startDemo();
   history.replaceState(null, '', '#board');
@@ -299,7 +359,7 @@ async function newGame({ askFirst = true } = {}) {
   if (askFirst && !await ask(others() ? `Every screen in room ${roomState.code} gets new words and a new key.` : 'New words and a new key.', { title: 'Start a new game?', ok: 'New game' })) return;
   next.agent = next.agentbg = next.bystander = next.bystanderbg = 0;
   for (const type of Object.keys(pics)) shuffle(pics[type]);
-  board = dealBoard(); key = dealKey(); save();
+  board = dealBoard(roomSpec() || localSpec()); key = dealKey(); save();
   repaint(); renderKey(); renderLeft();
   sendGame();
 }
@@ -317,25 +377,36 @@ function keyWords() {
   const picked = saved === false ? [] : Array.isArray(saved) ? saved.map(c => c === 'bystander' ? 'other' : c).filter(c => KEY_PICKS.includes(c)) : KEY_PICKS;
   return picked.flatMap(c => c === 'other' ? ['bystander', 'assassin'] : [c]);
 }
+// Above the key: who goes first, and once cards are turning, whose turn it is.
+function renderTurnOnKey(ended) {
+  if (!key) return;
+  const first = `${key.first === 'red' ? 'Red' : 'Blue'} goes first`, t = sideNow();
+  const started = board && board.turned.some(Boolean);
+  $('keyFirst').textContent = !started || ended ? first : `${t === 'red' ? 'Red' : 'Blue'}'s turn`;
+  $('keyFirst').className = `cn-first first-${started && !ended ? t : key.first}`;
+}
 function renderKey() {
   if (!key) return;
   $('keyCard').className = `cn-key first-${key.first} words`;
   $('keyCard').innerHTML = key.cells.map((c, i) => `<div class="cn-spot ${c}" data-i="${i}"><span></span></div>`).join('');
   $('keyCard').classList.toggle('remote', keyRemote()); keyPicked = -1;
   $('optKeyRemote').checked = keyRemote();
-  $('keyFirst').className = `cn-first first-${key.first}`;
-  $('keyFirst').textContent = `${key.first === 'red' ? 'Red' : 'Blue'} goes first`;
+  renderTurnOnKey();
   document.querySelectorAll('#keyWordChips input').forEach(box => box.checked = keyWords().includes(box.value === 'other' ? 'bystander' : box.value));
   renderMarks();
 }
+// A spymaster in a room with no board yet has only its own made-up words, which are on no TV:
+// it shows none until a board joins.
+const wordsKnown = () => mine.board || !(roomState.code && last) || validWords(last.words);
 // The dots for turned cards, and the words (which change when the room deals a new board).
 function renderMarks() {
+  $('keyNote').classList.toggle('hidden', wordsKnown());
   const turned = board ? board.turned : [], withWords = keyWords();
   let changed = false;
   [...$('keyCard').children].forEach((spot, i) => {
     spot.classList.toggle('turned', !!turned[i]);
     const c = key.cells[i];
-    const text = withWords.includes(c) && board ? board.words[i] : '';
+    const text = withWords.includes(c) && board && wordsKnown() ? board.words[i] : '';
     const span = spot.firstChild;
     // A two-word entry like SCUBA DIVER goes on two lines, so it can be bigger.
     if (span.dataset.word !== text) { span.dataset.word = text; span.innerHTML = text.split(' ').map(esc).join('<br>'); changed = true; }
@@ -360,9 +431,9 @@ addEventListener('resize', () => { if (!$('key').classList.contains('hidden')) f
 // face down), the same two taps as on the board. Handy when the TV has no touchscreen.
 const KEY_REMOTE_STORE = 'cn.keyRemote';
 const keyRemote = () => local.get(KEY_REMOTE_STORE) === true;
-let keyPicked = -1;
+let keyPicked = -1, spotAt = 0;
 function pickSpot(i) {
-  keyPicked = i;
+  keyPicked = i; spotAt = Date.now();
   [...$('keyCard').children].forEach((spot, j) => spot.classList.toggle('picked', j === i));
 }
 $('keyCard').addEventListener('click', e => {
@@ -370,7 +441,7 @@ $('keyCard').addEventListener('click', e => {
   if (!spot || !keyRemote()) return;
   e.stopPropagation();
   const i = Number(spot.dataset.i);
-  if (keyPicked === i) { pickSpot(-1); tap(i); } else pickSpot(i);
+  if (keyPicked === i) { if (Date.now() - spotAt >= PICK_GAP) { pickSpot(-1); tap(i); } } else pickSpot(i);
 });
 document.addEventListener('click', e => { if (keyPicked >= 0 && !e.target.closest('#keyCard')) pickSpot(-1); });
 $('optKeyRemote').addEventListener('change', e => {
@@ -404,13 +475,16 @@ function openKey() {
 let room = null, last = null, pushOnJoin = false, roomState = { text: 'Connecting…', on: false, count: 0, code: '' };
 const others = () => roomState.code && roomState.count > 1;
 const send = part => { if (room && room.code && room.code()) room.send(part).catch(() => {}); };
-const boardParts = () => ({ words: board.words, gid: board.gid, turns: { [board.gid]: board.turned }, turned: null });
+const boardParts = () => ({ words: board.words, gid: board.gid, turns: { [board.gid]: board.turned }, side: board.side ? { [board.gid]: board.side } : null, deck: board.spec || localSpec(), turned: null });
 // The room's board, if it has one. A room written by an older version has a turned list and no gid.
 function roomBoard(s) {
   if (!validWords(s.words)) return null;
   const t = typeof s.gid === 'string' ? s.turns && s.turns[s.gid] : s.turned;
   if (typeof s.gid !== 'string' && !Array.isArray(t)) return null;
-  return { words: [...s.words], gid: typeof s.gid === 'string' ? s.gid : null, turned: Array.from({ length: 25 }, (_, i) => t && t[i] ? 1 : 0) };
+  const gid = typeof s.gid === 'string' ? s.gid : null;
+  const cell = v => v && typeof v === 'object' ? { at: Number(v.at) || 0, by: v.by === 'red' || v.by === 'blue' ? v.by : null } : v ? 1 : 0;
+  const side = gid && s.side && (s.side[gid] === 'red' || s.side[gid] === 'blue') ? s.side[gid] : null;
+  return { words: [...s.words], gid, side, spec: validSpec(s.deck) ? s.deck : null, turned: Array.from({ length: 25 }, (_, i) => cell(t && t[i])) };
 }
 const ownParts = () => ({
   ...(mine.board ? boardParts() : {}),
@@ -430,6 +504,7 @@ function onRoomState(s) {
   if (!s) return;
   // A game dealt from the start screen before the room connected: it replaces the room's game.
   if (pushOnJoin) { pushOnJoin = false; sendGame(); return; }
+  if (!validSpec(s.deck) && board && board.spec && mine.board && validWords(s.words)) send({ deck: board.spec });
   const newKey = validKey(s) && !sameKey(key, s);
   if (newKey) key = { first: s.first, cells: [...s.cells] };
   const rb = roomBoard(s);
@@ -470,9 +545,9 @@ function renderRoom() {
   $('landRoomInfo').textContent = r.code && r.on
     ? (r.count > 1 ? `${r.count} screens in this room.` : 'Only this screen is in this room so far.')
     : r.text || "You're offline.";
-  $('roomCount').textContent = r.code && r.on
+  $('roomCount').textContent = (r.code && r.on
     ? (r.count > 1 ? `${r.count} screens are in this room.` : 'Only this screen is in the room so far.')
-    : r.text || "You're offline.";
+    : r.text || "You're offline.") + (roomSpec() ? ` Words: ${specName(roomSpec())}.` : '') + (seriesText() ? ` ${seriesText()}.` : '');
 }
 
 let linked = /^[A-Z2-9]{4}$/.test((params.get('room') || '').toUpperCase()) ? params.get('room').toUpperCase() : '', linkMsg = '';
@@ -504,13 +579,19 @@ async function startRoom() {
       linked = '';
     }
     const saved = stale ? null : local.get(ROOM_STORE);
-    if (!saved || await r.join(saved) !== 'ok') await r.create(ownParts());
+    if (dirtyOffline && saved) pushOnJoin = true;
+    if (!saved || await r.join(saved) !== 'ok') { pushOnJoin = false; await r.create(ownParts()); }
+    dirtyOffline = false;
     if (linkMsg) { openRoomDlg(); $('roomMsg').textContent = linkMsg; linkMsg = ''; }
   } catch (e) {
+    // The database couldn't be reached (or a hiccup): try again shortly, or when back online.
     room = null;
-    roomState = { text: 'No room', on: false, count: 0, code: '' }; renderRoom();
+    roomState = { text: 'No room · retrying', on: false, count: 0, code: '' }; renderRoom();
+    clearTimeout(retryTimer); retryTimer = setTimeout(startRoom, 8000);
+    addEventListener('online', startRoom, { once: true });
   }
 }
+let retryTimer = null;
 
 // The room dialog: this screen's code, and a box to type another screen's code.
 const dlg = $('roomDlg');
@@ -564,17 +645,25 @@ function openChoose() {
 }
 
 // ───────────────────────── PAGE ─────────────────────────
+const howto = $('howto');
+const openHow = () => { howto.classList.remove('hidden'); $('btnHowClose').focus(); };
+const closeHow = () => howto.classList.add('hidden');
+$('btnHowClose').onclick = closeHow;
+howto.addEventListener('click', e => { if (e.target === howto) closeHow(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHow(); });
 const showAbout = initAbout({ version: VERSION, released: RELEASED, cardsText: async () => lists.map(l => `${l.name}: ${l.words.length} words`).join(' · ') });
 const fullScreen = () => { try { document.documentElement.requestFullscreen(); } catch {} };
 initMenu(() => {
   const view = views.find(v => !$(v).classList.contains('hidden'));
   return [
     ...(view !== 'choose' ? [['New game', newGame]] : []),
+    ...(view !== 'choose' && board && board.turned.some(Boolean) ? [['Undo last card', undoLast]] : []),
     ...(view === 'board' ? [...(document.fullscreenEnabled ? [['Full screen', fullScreen]] : []),
       [`Sound: ${soundOn() ? 'on' : 'off'}`, () => local.set(SOUND_STORE, !soundOn())], ['Spymaster key', openKey]] : []),
     ...(view === 'key' ? [['Board', openBoard]] : []),
     ...(view !== 'choose' ? [['Room', openRoomDlg]] : []),
     ...(view !== 'choose' ? [['Change screen', openChoose]] : []),
+    ['How to play', openHow],
     ['About', showAbout],
   ];
 });
@@ -595,6 +684,17 @@ function chosenMix() {
   const saved = local.get(MIX_STORE);
   return Array.isArray(saved) ? saved.filter(id => mixes().some(l => l.id === id)) : [];
 }
+// A deal's lists, as stored in the room (deck) so New game on any screen deals from the same ones.
+const localSpec = () => ({ list: chosenId() || 'original', mix: chosenMix(), oneTag: oneTag() });
+const validSpec = d => d && typeof d.list === 'string' && (!d.mix || Array.isArray(d.mix));
+const roomSpec = () => last && validSpec(last.deck) ? last.deck : board && board.spec;
+function poolFor(spec) {
+  const seen = new Map();
+  for (const id of [spec.list, ...(spec.mix || [])]) for (const e of (lists.find(l => l.id === id) || { words: [] }).words) if (!seen.has(e.w)) seen.set(e.w, e);
+  for (const e of words) if (!seen.has(e.w) && !lists.some(l => l.words.some(x => x.w === e.w))) seen.set(e.w, e);   // ?addon words
+  return [...seen.values()];
+}
+const specName = spec => !spec ? '' : [spec.list, ...(spec.mix || [])].map(id => (lists.find(l => l.id === id) || { name: id }).name).join(' + ');
 function buildPool() {
   const seen = new Map(), use = [chosenId(), ...chosenMix()];
   for (const id of use) for (const e of (lists.find(l => l.id === id) || { words: [] }).words) if (!seen.has(e.w)) seen.set(e.w, e);
@@ -623,11 +723,14 @@ function renderLists() {
   })));
   $('mixRow').classList.toggle('hidden', !mixes().length);
 }
-// After the lists change, the next board or key opened starts a new game from them.
-function freshFromPicker() {
+// After the lists change, the next board or key opened starts a new game from them (asking
+// first when other screens share the room, since it changes their game too).
+async function freshFromPicker() {
   if (!listsChanged) return;
   listsChanged = false;
+  if (others() && !await ask(`Every screen in room ${roomState.code} gets a new game from ${specName(localSpec())}.`, { title: 'New game with these word lists?', ok: 'New game', cancel: 'Keep this game' })) return;
   board = dealBoard(); key = dealKey(); save();
+  repaint(); renderKey(); renderLeft();
   if (room && room.code && room.code()) sendGame(); else pushOnJoin = true;
 }
 
@@ -636,13 +739,14 @@ $('btnKey').onclick = openKey;
 
 try {
   lists = await (await fetch('lists.json', { cache: 'no-cache' })).json();
-  await Promise.all(lists.map(async l => { l.words = (await lines(`lists/${l.id}.txt`)).map(parse); }));
+  // A list that fails to load is left out; the others still work.
+  const got = await Promise.allSettled(lists.map(async l => { l.words = (await lines(`lists/${l.id}.txt`)).map(parse); }));
+  lists = lists.filter((l, i) => got[i].status === 'fulfilled');
 } catch {
   lists = [];
   $('status').textContent = 'Could not load the word lists — open this page from a web server.';
 }
 renderLists(); buildPool();
-loadImages();
 
 if (location.hash === '#board' && words.length >= 25) openBoard();
 else if (location.hash === '#spymaster' && words.length >= 25) openKey();
