@@ -25,6 +25,8 @@ Devices sync through rooms in a Firebase Realtime Database (project `madgab-b4a1
 
 The reader wears a cheek retractor and reads each phrase out loud; their team has to work out what they're saying. One phone, held by the reader: set the round length and teams and tap *Start game*; the "you're up" screen comes first, so the reader can put the mouthpiece in, then *Start round*, then **Got It** or **Skip** for each phrase. Between rounds the phone goes to the next team's reader. Phrases come from `watch-ya-mouth/phrases.txt`, one per line.
 
+*Your phrases* (on the setup screen) takes extra phrases, one per line, saved on that phone only and mixed into the deck: in-jokes and friends' names. *Scores on a TV* opens a room (with a code and QR code, like Mad Gab's) for a scoreboard screen: the clock, the scores and each round's results, never the phrase, so the guessers can watch the time. A screen joins with `watch-ya-mouth/?board=CODE` (the QR code's `?join=` works too). The room only opens when asked for; a reload keeps it.
+
 ## Password
 
 Two teams of two. Both clue-givers see the secret word; the team shown as **guessing** gets a one-word clue and one guess. Wrong passes the next clue to the other team, and after 10 clues nobody scores the word. Teams take turns giving the first clue on each word. Two kinds of scoring:
