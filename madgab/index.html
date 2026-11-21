@@ -103,6 +103,18 @@
           </select>
         </div>
         <div>
+          <label for="optGoal">Game ends</label>
+          <select id="optGoal">
+            <option value="0" selected>Never (keep playing)</option>
+            <option value="p10">First to 10 points</option>
+            <option value="p20">First to 20 points</option>
+            <option value="p30">First to 30 points</option>
+            <option value="r3">After 3 rounds</option>
+            <option value="r5">After 5 rounds</option>
+            <option value="r10">After 10 rounds</option>
+          </select>
+        </div>
+        <div>
           <label for="optTeams">Teams (comma separated)</label>
           <input id="optTeams" value="Team A, Team B">
         </div>
@@ -136,6 +148,7 @@
       <button class="good" id="btnGot">Got It</button>
     </div>
     <div class="row">
+      <button id="btnUndo" disabled>Undo</button>
       <button id="btnPause">Pause</button>
       <button id="btnEnd">End round</button>
     </div>
@@ -146,6 +159,7 @@
     <div class="scorebar" id="oScores"></div>
     <div class="banner" id="oBanner"></div>
     <div class="panel"><ul class="results" id="oResults"></ul></div>
+    <p class="muted center" style="font-size:14px;margin:0">Tapped the wrong one? Tap a word to switch it between ✓ and ✗.</p>
     <button class="primary" id="btnNext">Next round</button>
   </section>
 </main>

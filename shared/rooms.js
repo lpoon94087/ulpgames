@@ -45,6 +45,15 @@ const setStatus = (text, on) => { $('status').innerHTML = `<span class="dot ${on
 
 // The room this tab is hosting, if it has one (a moderator reloading keeps its room).
 export const savedRoom = game => session.get(game + '.code');
+// The room this device hosted last, kept for 6 hours even if the tab is closed (or a phone throws
+// it away): a moderator who comes back opens the same code again, so the viewers and the TV pick
+// up where they were instead of waiting on a code nobody uses any more.
+const HOSTED_FOR = 6 * 3600e3;
+const hosted = {
+  get(game) { try { const h = JSON.parse(localStorage.getItem(game + '.hosted')); return h && Date.now() - h.at < HOSTED_FOR ? h : null; } catch { return null; } },
+  set(game, h) { try { localStorage.setItem(game + '.hosted', JSON.stringify(h)); } catch {} },
+  remove(game) { try { localStorage.removeItem(game + '.hosted'); } catch {} },
+};
 
 // The viewer state for a createRounds engine. card(c) is what viewers see of a card
 // (never the answer); result(r) gives [main, sub] for the results list.
@@ -54,6 +63,7 @@ export function roundState(G, { card, note, result }) {
   if (G.phase === 'paused') s.left = G.pausedLeft;
   if (G.phase === 'setup') s.left = G.roundMs;
   if (G.phase === 'over') s.results = G.results.map(r => { const [main, sub] = result(r); return { main, sub: sub || '', got: r.got }; });
+  if (G.phase === 'over') s.banner = G.overText;   // this round's points, or who won the game
   return s;
 }
 
@@ -61,13 +71,15 @@ export function roundState(G, { card, note, result }) {
 // Opens a room and fills the page's #roomCode, #qr, #viewerCount and #status.
 // state() returns what viewers should see; call send() whenever it changes.
 export function hostRoom({ game, state }) {
+  const last = !savedRoom(game) && hosted.get(game);
+  if (last) session.set(game + '.me', last.id);   // claim it again as the same moderator
   const ME = tabId(game);
   let code = null;
 
   // With no internet there is no room, but the game still works on this device.
   const ALONE = 'This device works on its own; viewers need internet.';
   function start() {
-    if (navigator.onLine) return open(savedRoom(game) || newCode());
+    if (navigator.onLine) return open(savedRoom(game) || (last && last.code) || newCode());
     setStatus('Offline', false);
     $('viewerCount').textContent = `You're offline. ${ALONE}`;
     addEventListener('online', start, { once: true });
@@ -88,7 +100,7 @@ export function hostRoom({ game, state }) {
       return;
     } finally { clearTimeout(slow); }
     if (!res.committed) return open(newCode());
-    code = c; session.set(game + '.code', c);
+    code = c; session.set(game + '.code', c); hosted.set(game, { code: c, id: ME, at: Date.now() });
     $('roomCode').textContent = c;
     const url = location.origin + location.pathname + '?join=' + c;
     $('qr').innerHTML = '';
@@ -102,13 +114,14 @@ export function hostRoom({ game, state }) {
   }
   function send() {
     if (!code) return;
+    hosted.set(game, { code, id: ME, at: Date.now() });
     set(ref(db, `rooms/${code}/state`), { ...state(), game })
       .catch(e => setStatus('Sync error: ' + (e.code || e.message), false));
   }
   // Tell the viewers the game is over and give up the code.
   async function close() {
     if (code) { try { await set(ref(db, `rooms/${code}/state`), { phase: 'closed', game }); } catch {} }
-    session.remove(game + '.code');
+    session.remove(game + '.code'); hosted.remove(game);
   }
 
   start();

@@ -3,7 +3,7 @@ import { hostRoom, viewRoom, roundState, savedRoom } from '../shared/rooms.js';
 
 // Mad Gab: a moderator device runs the game; viewer devices show the team only the puzzle.
 // They sync through a room (shared/rooms.js).
-const VERSION = '1.11', RELEASED = '2026-11-21';
+const VERSION = '1.12', RELEASED = '2026-11-21';
 
 const sections = ['home', 'demo', 'join', 'viewer', 'setup', 'ready', 'play', 'over'];
 const show = name => sections.forEach(s => $(s).classList.toggle('hidden', s !== name));

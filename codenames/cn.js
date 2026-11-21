@@ -5,7 +5,7 @@ import { $, ask, esc, shuffle, lines, keepAwake, initMenu, initAbout } from '../
 // Words come from the lists in lists/ (named in lists.json), picked on the start screen;
 // ?addon=WORD,WORD adds more. The revealed-card pictures are in img/,
 // listed in images.json. ?demo turns a random card every second, for showing the board off.
-const VERSION = '2.27', RELEASED = '2026-11-21';
+const VERSION = '2.28', RELEASED = '2026-11-21';
 
 const params = new URLSearchParams(location.search);
 const views = ['choose', 'board', 'key'];
@@ -119,6 +119,17 @@ async function loadImages() {
 const SOUND_STORE = 'cn.sound';
 const soundOn = () => local.get(SOUND_STORE) !== false;
 let actx = null;
+// A browser only lets a page play sound after a tap on it. The board's first tap anywhere (the
+// Board button, Full screen, the room code) unlocks it, so a board whose cards are turned from a
+// phone still plays the sounds.
+function unlockAudio() {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+  } catch {}
+}
+document.addEventListener('pointerdown', unlockAudio, { capture: true });
+document.addEventListener('keydown', unlockAudio, { capture: true });
 function tone(freq, start, dur, { type = 'sine', vol = .18, to } = {}) {
   const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + start;
   o.type = type; o.frequency.setValueAtTime(freq, t);
@@ -309,7 +320,9 @@ function keyWords() {
 function renderKey() {
   if (!key) return;
   $('keyCard').className = `cn-key first-${key.first} words`;
-  $('keyCard').innerHTML = key.cells.map(c => `<div class="cn-spot ${c}"><span></span></div>`).join('');
+  $('keyCard').innerHTML = key.cells.map((c, i) => `<div class="cn-spot ${c}" data-i="${i}"><span></span></div>`).join('');
+  $('keyCard').classList.toggle('remote', keyRemote()); keyPicked = -1;
+  $('optKeyRemote').checked = keyRemote();
   $('keyFirst').className = `cn-first first-${key.first}`;
   $('keyFirst').textContent = `${key.first === 'red' ? 'Red' : 'Blue'} goes first`;
   document.querySelectorAll('#keyWordChips input').forEach(box => box.checked = keyWords().includes(box.value === 'other' ? 'bystander' : box.value));
@@ -342,6 +355,28 @@ function fitKeyWords() {
   }
 }
 addEventListener('resize', () => { if (!$('key').classList.contains('hidden')) fitKeyWords(); });
+// The key as the board's remote (cn.keyRemote, off by default): with it on, tapping a place on the
+// key picks it, and tapping it again turns that card on every board in the room (or turns it back
+// face down), the same two taps as on the board. Handy when the TV has no touchscreen.
+const KEY_REMOTE_STORE = 'cn.keyRemote';
+const keyRemote = () => local.get(KEY_REMOTE_STORE) === true;
+let keyPicked = -1;
+function pickSpot(i) {
+  keyPicked = i;
+  [...$('keyCard').children].forEach((spot, j) => spot.classList.toggle('picked', j === i));
+}
+$('keyCard').addEventListener('click', e => {
+  const spot = e.target.closest('.cn-spot');
+  if (!spot || !keyRemote()) return;
+  e.stopPropagation();
+  const i = Number(spot.dataset.i);
+  if (keyPicked === i) { pickSpot(-1); tap(i); } else pickSpot(i);
+});
+document.addEventListener('click', e => { if (keyPicked >= 0 && !e.target.closest('#keyCard')) pickSpot(-1); });
+$('optKeyRemote').addEventListener('change', e => {
+  local.set(KEY_REMOTE_STORE, e.target.checked);
+  $('keyCard').classList.toggle('remote', e.target.checked); pickSpot(-1);
+});
 $('keyWordChips').addEventListener('change', () => {
   local.set(KEY_WORDS_STORE, [...document.querySelectorAll('#keyWordChips input:checked')].map(box => box.value));
   renderKey(); fitKeyWords();
@@ -412,6 +447,18 @@ function onRoomState(s) {
   fillRoom();
 }
 
+// A QR code for joining this screen's room, in the room dialog: a phone that scans it opens the
+// spymaster key in this room (?room=CODE#spymaster).
+let qrFor = null;
+function renderQr(code) {
+  if (code === qrFor) return;
+  qrFor = code;
+  const url = code ? `${location.origin}${location.pathname}?room=${code}#spymaster` : '';
+  $('roomQr').innerHTML = ''; $('roomQr').classList.toggle('hidden', !code || !window.QRCode);
+  if (code && window.QRCode) new QRCode($('roomQr'), { text: url, width: 180, height: 180 });
+  $('roomLink').textContent = code ? url.replace(/^https?:\/\//, '') : '';
+}
+
 // The room button in the top right: the code, a dot for the connection and how many screens share it.
 function renderRoom() {
   const r = roomState, b = $('btnRoom');
@@ -419,6 +466,7 @@ function renderRoom() {
   const extra = r.code && r.on && r.count > 1 ? ` · ${r.count} screens` : r.code && !r.on ? ` · ${r.text || 'Offline'}` : '';
   b.innerHTML = `<span class="dot ${r.on && r.code ? 'on' : ''}"></span>${esc(label)}<small>${esc(extra)}</small>`;
   $('roomMine').textContent = $('landRoom').textContent = r.code || '—';
+  renderQr(r.code);
   $('landRoomInfo').textContent = r.code && r.on
     ? (r.count > 1 ? `${r.count} screens in this room.` : 'Only this screen is in this room so far.')
     : r.text || "You're offline.";
@@ -427,6 +475,7 @@ function renderRoom() {
     : r.text || "You're offline.";
 }
 
+let linked = /^[A-Z2-9]{4}$/.test((params.get('room') || '').toUpperCase()) ? params.get('room').toUpperCase() : '', linkMsg = '';
 async function startRoom() {
   if (room) return;
   room = 'starting';
@@ -445,9 +494,18 @@ async function startRoom() {
       onStatus: st => { roomState = st; if (st.code) { local.set(ROOM_STORE, st.code); touch(); } renderRoom(); },
     });
     room = r;
-    // Back to the room this screen was in, if it's still there; otherwise a new one.
+    // A room link (?room=CODE, from another screen's QR code) joins that room. Otherwise back to
+    // the room this screen was in, if it's still there; otherwise a new one.
+    if (linked) {
+      const res = await r.join(linked);
+      history.replaceState(null, '', location.pathname + location.hash);
+      if (res === 'ok') { linked = ''; return; }
+      linkMsg = `Room ${linked} has no Codenames game any more, so this screen is in a room of its own.`;
+      linked = '';
+    }
     const saved = stale ? null : local.get(ROOM_STORE);
     if (!saved || await r.join(saved) !== 'ok') await r.create(ownParts());
+    if (linkMsg) { openRoomDlg(); $('roomMsg').textContent = linkMsg; linkMsg = ''; }
   } catch (e) {
     room = null;
     roomState = { text: 'No room', on: false, count: 0, code: '' }; renderRoom();

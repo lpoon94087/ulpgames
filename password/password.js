@@ -8,7 +8,7 @@ import { hostRoom, viewRoom, savedRoom } from '../shared/rooms.js';
 //   simple   a word is worth 1; play a set number of rounds, each team starting one word a round
 // The moderator runs it; viewers are a clue-giver screen (with the word) or a scoreboard
 // (without it), synced through a room (shared/rooms.js).
-const VERSION = '1.2', RELEASED = '2026-11-19';
+const VERSION = '1.3', RELEASED = '2026-11-21';
 const START_VALUE = 10, MAX_CLUES = 10;
 
 const sections = ['home', 'join', 'viewer', 'setup', 'play', 'done', 'over'];
@@ -71,9 +71,19 @@ function draw() {
 }
 const deckLeft = () => { const d = st.get('deck', null); return d && d.n === words.length ? d.order.length : words.length; };
 
-function save() { st.set('game', G); if (room) room.send(); render(); }
-function act(fn) { history.push(JSON.stringify(G)); if (history.length > 50) history.shift(); fn(); save(); }
-function undo() { if (!history.length) return; G = JSON.parse(history.pop()); save(); }
+// The game and its undo history are saved after every change, with the time, so a reload (or a
+// tab the phone threw away) carries on, Undo included.
+function save() { st.set('game', G); st.set('history', history); st.set('savedAt', Date.now()); if (room) room.send(); render(); }
+// A second tap within TAP_GAP of the last one is a double-tap, and is ignored: one Wrong would
+// otherwise cost 2 points and hand the clue straight back.
+const TAP_GAP = 500;
+let lastAct = 0;
+function act(fn, { guard = false } = {}) {
+  if (guard && Date.now() - lastAct < TAP_GAP) return;
+  lastAct = Date.now();
+  history.push(JSON.stringify(G)); if (history.length > 50) history.shift(); fn(); save();
+}
+function undo() { if (!history.length) return; G = JSON.parse(history.pop()); lastAct = 0; save(); }
 
 function newWord() { G.word = draw(); G.value = START_VALUE; G.clue = 1; G.guessing = G.starter; G.phase = 'word'; G.last = null; }
 // A word is finished (scored or not): count it, give the next word's first clue to the other
@@ -88,16 +98,16 @@ function got() {
     const p = points(G); G.teams[G.guessing].score += p;
     G.last = { team: G.guessing, points: p, word: G.word };
     finishWord('scored'); beep(1046, .12);
-  });
+  }, { guard: true });
 }
 function wrong() {
   act(() => {
     G.value--; G.clue++;
     if (G.clue > MAX_CLUES) { G.last = { team: null, points: 0, word: G.word }; finishWord('dead'); beep(220, .4, .25); }
     else G.guessing = 1 - G.guessing;
-  });
+  }, { guard: true });
 }
-function skip() { act(() => { G.word = draw(); G.value = START_VALUE; G.clue = 1; G.guessing = G.starter; }); }
+function skip() { act(() => { G.word = draw(); G.value = START_VALUE; G.clue = 1; G.guessing = G.starter; }, { guard: true }); }
 
 function startGame() {
   act(() => {
@@ -168,6 +178,7 @@ async function leaveGame() {
   location.href = location.pathname;
 }
 
+let resuming = false;   // a reload of this tab's own game: carry on without asking
 async function startModerator() {
   if (role) return;
   role = 'moderator'; show('setup');
@@ -183,8 +194,20 @@ async function startModerator() {
   // A game saved by version 1.0 has no mode, clue or played: fill them in.
   const saved = st.get('game', null);
   G = saved ? { ...fresh(), clue: START_VALUE - (saved.value ?? START_VALUE) + 1, ...saved } : fresh();
+  history = saved ? (st.get('history', []) || []) : [];
+  // A game left part-way (not just reloaded in this tab): ask whether to carry on with it.
+  if (saved && G.phase !== 'setup' && !resuming) {
+    const ago = Math.round((Date.now() - (st.get('savedAt', 0) || 0)) / 60000);
+    const when = !st.get('savedAt', 0) ? '' : ago < 1 ? ' just now' : ago < 60 ? ` ${ago} min ago` : ago < 1440 ? ` ${Math.round(ago / 60)} h ago` : ` ${Math.round(ago / 1440)} days ago`;
+    const go = await ask(`${G.teams.map(t => `${t.name} ${t.score}`).join(' · ')}, left${when}.`, { title: 'Carry on the last game?', ok: 'Carry on', cancel: 'New game' });
+    if (go === false) {
+      const k = G; G = fresh(); history = [];
+      G.teams = k.teams.map(t => ({ name: t.name, score: 0 })); G.mode = k.mode; G.target = k.target; G.rounds = k.rounds;
+    }
+  }
   room = hostRoom({ game: 'pw', state: viewState });
-  render();
+  save();
+  if (G.phase !== 'setup') keepAwake();
 }
 
 $('btnStart').onclick = startGame;
@@ -246,5 +269,5 @@ else if (joining) {
   $('joinNote').classList.remove('hidden'); $('joinNote').textContent = `Joining room ${joining}: pick a screen`;
   show('home');
 }
-else if (savedRoom('pw')) startModerator();   // a moderator reloading keeps their room and game
+else if (savedRoom('pw')) { resuming = true; startModerator(); }   // a moderator reloading keeps their room and game
 else show('home');

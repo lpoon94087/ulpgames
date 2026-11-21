@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Codenames</title>
 <link rel="stylesheet" href="../shared/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body class="cn">
 <header>
@@ -20,7 +21,9 @@
     <p style="margin:6px 0 2px">This screen's room</p>
     <div class="code" id="roomMine">—</div>
     <p class="muted" style="font-size:15px" id="roomCount"></p>
-    <p class="muted" style="font-size:15px">Every screen in a room, the board and the spymasters' phones, shows the same game: the same board and key, with a white dot on the key for each card turned on the board. <b>New game</b> on any of them changes it for all of them. To join another screen's game, type the room code shown on it:</p>
+    <div class="cn-qr" id="roomQr"></div>
+    <p class="muted center" style="font-size:13px;margin:4px 0 10px">Scan with a phone's camera to open the spymaster key in this room.<br><span id="roomLink" style="word-break:break-all"></span></p>
+    <p class="muted" style="font-size:15px">Every screen in a room, the board and the spymasters' phones, shows the same game: the same board and key, with a white dot on the key for each card turned on the board. <b>New game</b> on any of them changes it for all of them. To join another screen's game, scan its QR code or type the room code shown on it:</p>
     <input id="roomInput" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD"
       style="font: 700 28px/1 ui-monospace, Menlo, monospace; letter-spacing: 6px; text-transform: uppercase; text-align: center">
     <p class="muted" id="roomMsg" style="font-size:15px;min-height:1.4em;margin:8px 0"></p>
@@ -103,6 +106,7 @@
   <section id="key" class="hidden">
     <div class="cn-first" id="keyFirst"></div>
     <div class="cn-key" id="keyCard"></div>
+    <label class="chip" style="align-self:center"><input type="checkbox" id="optKeyRemote"> Tap the key to turn cards on the board</label>
     <div class="cn-key-words">
       <span class="muted">Show words:</span>
       <div class="chips" id="keyWordChips">
