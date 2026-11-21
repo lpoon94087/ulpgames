@@ -6,7 +6,7 @@ import { hostRoom, viewRoom, roundState, savedRoom } from '../shared/rooms.js';
 // "Just words" hands out one word at a time; timed rounds use the shared round engine.
 // Like Mad Gab, a device is either the moderator (every control; works on its own too)
 // or a read-only viewer of the moderator's word, synced through a room (shared/rooms.js).
-const VERSION = '1.12', RELEASED = '2026-11-21';
+const VERSION = '1.13', RELEASED = '2026-11-21';
 
 const sections = ['home', 'setup', 'free', 'ready', 'play', 'over', 'join', 'viewer'];
 let at = 'home', room = null, role = null;
@@ -26,14 +26,26 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHow(); 
 
 let G = null, lists = [], cards = [];
 const byId = new Map();
-// Load lists.json and every list once, for the moderator or the About box.
-let loading = null;
+// Load lists.json and every list once, for the moderator or the About box. A list that fails to
+// load is left out (the others still work); if lists.json itself fails, the next try loads again.
+let loading = null, missing = [];
 const loadLists = () => loading || (loading = (async () => {
-  lists = await fetch('lists.json', { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  const all = await fetch('lists.json', { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  const words = await Promise.allSettled(all.map(l => lines(`lists/${l.id}.txt`)));
+  lists = all.filter((l, i) => words[i].status === 'fulfilled');
+  missing = all.filter((l, i) => words[i].status !== 'fulfilled').map(l => l.name);
+  if (!lists.length) throw new Error('no lists');
   lists.forEach(l => byId.set(l.id, l));
-  const words = await Promise.all(lists.map(l => lines(`lists/${l.id}.txt`)));
-  lists.forEach((l, i) => words[i].forEach(word => cards.push({ word, list: l.id })));
-})());
+  all.forEach((l, i) => { if (words[i].status === 'fulfilled') words[i].value.forEach(word => cards.push({ word, list: l.id })); });
+})().catch(e => { loading = null; throw e; }));
+const loadError = () => location.protocol === 'file:'
+  ? 'Could not load the word lists — open this page from a web server, not as a local file.'
+  : "Could not load the word lists. Check the internet connection and reload the page.";
+// What to do with a word: the start of its list's tip ("Draw it", "Act it out").
+const howTo = id => byId.get(id).tip.split(/[.—]/)[0].trim();
+// Single words only (optSingle): leave out phrases and multi-word titles.
+const single = () => $('optSingle').checked;
+const isSingle = w => !/\s/.test(w);
 
 // The list picker: a tick box per list, grouped under its family (Pictionary, Charades) or its group (Topics).
 // Each heading has an "All" toggle; Everything and Clear pick every list or none.
@@ -90,7 +102,7 @@ function onListChange() {
     const ids = [...sec.querySelectorAll('input')].map(i => i.value);
     sec.querySelector('.chip-btn').textContent = ids.every(id => picked.has(id)) ? 'None' : 'All';
   });
-  const n = cards.filter(c => picked.has(c.list)).length;
+  const n = cards.filter(c => picked.has(c.list) && (!single() || isSingle(c.word))).length;
   $('listTip').textContent = picked.size ? `${n.toLocaleString()} word${n === 1 ? '' : 's'} · ${chosenTip()}` : chosenTip();
   $('btnStart').disabled = $('btnFree').disabled = !picked.size;
   if (G) G.updateDeckInfo();
@@ -98,7 +110,11 @@ function onListChange() {
 
 // ───────────── Just words ─────────────
 let covered = false, freeCard = null;
+// A second Next word within half a second is a double-tap, and is ignored (it would skip a word unseen).
+let freeAt = 0;
 function freeWord() {
+  if (Date.now() - freeAt < 500) return;
+  freeAt = Date.now();
   const c = freeCard = G.draw();
   $('fWord').textContent = c.word;
   // With a mix, say which list the word came from, so the player knows to draw it or act it.
@@ -174,16 +190,20 @@ async function startModerator() {
   if (role) return;
   role = 'moderator'; show('setup'); keepAwake();
   $('optCover').checked = st.get('cover', true);
+  $('optSingle').checked = st.get('single', false);
   try {
     await loadLists();
     buildPicker();
     G = createRounds({
       prefix: 'wg', cards, show, noun: 'words',
-      fits: i => chosen().has(cards[i].list),
+      fits: i => chosen().has(cards[i].list) && (!single() || isSingle(cards[i].word)),
+      // Every ticked list comes up as often as the others, and a word in two lists comes up once.
+      balanceBy: c => c.list,
+      sameAs: c => c.word.toLowerCase(),
       info: chosenName,
       renderCard: c => {
         $('pWord').textContent = c.word;
-        $('pList').textContent = chosen().size > 1 ? byId.get(c.list).name : '';
+        $('pList').textContent = chosen().size > 1 ? `${byId.get(c.list).name} · ${howTo(c.list)}` : '';
       },
       result: r => [r.word, chosen().size > 1 ? byId.get(r.list).name : ''],
       onChange: () => room && room.send(),
@@ -198,10 +218,13 @@ async function startModerator() {
       },
     });
     onListChange();
-  } catch {
-    $('deckInfo').textContent = 'Could not load the word lists — open this page from a web server, not as a local file.';
+  } catch (e) {
+    if (G) throw e;   // a bug after loading, not a load failure: let it show in the console
+    $('deckInfo').textContent = loadError();
     $('btnStart').disabled = $('btnFree').disabled = true;
     return;
   }
+  if (missing.length) $('listTip').textContent = `Couldn't load ${missing.join(', ')}; the other lists work. ` + $('listTip').textContent;
+  $('optSingle').onchange = () => { st.set('single', $('optSingle').checked); onListChange(); };
   room = hostRoom({ game: 'wg', state: viewState });
 }

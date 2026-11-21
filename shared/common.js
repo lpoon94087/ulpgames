@@ -167,22 +167,29 @@ export function initAbout({ version, released, cardsText }) {
 //               starts the round. The page's startCue(on) shows or hides the START card.
 //   startCue(on) required with tapToStart
 //   readyFirst  optional: Start game opens the "you're up" screen first, as between rounds
+//   balanceBy(card)  optional: a group name per card; each draw picks a group at random first
+//   sameAs(card)     optional: cards with the same sameAs (a word in two lists) are drawn once:
+//               drawing one takes the others out of the deck too
+// If the page has an optSkips select (0 = no limit), that's how many skips a round allows.
 export function createRounds(o) {
   const st = store(o.prefix);
   const cards = o.cards, fits = o.fits || (() => true);
   const G = { teams: [], current: 0, roundMs: 120000, phase: 'setup', endsAt: 0, pausedLeft: 0, card: null, results: [], deck: [],
     turns: 0, overText: '', winner: null };
-  let tick = null, lastBeep = -1, armed = false;
-  const changed = () => { if (o.onChange) o.onChange(G); };
+  let tick = null, lastBeep = -1, armed = false, screen = 'setup';
+  const show = name => { screen = name; o.show(name); };
+  const changed = () => { saveRound(); if (o.onChange) o.onChange(G); };
 
   // Teams and scores
   function parseTeams() {
     const names = $('optTeams').value.split(',').map(s => s.trim()).filter(Boolean);
     return (names.length ? names : ['Team A']).map(name => ({ name, score: 0 }));
   }
+  // Scores stay with the team in the same place in the list, so renaming a team keeps its score
+  // (and two teams with the same name keep their own scores).
   function syncTeams() {
-    const old = new Map(G.teams.map(t => [t.name, t.score]));
-    G.teams = parseTeams().map(t => ({ name: t.name, score: old.get(t.name) || 0 }));
+    const old = G.teams.map(t => t.score);
+    G.teams = parseTeams().map((t, i) => ({ name: t.name, score: old[i] || 0 }));
     if (G.current >= G.teams.length) G.current = 0;
     st.set('teamsText', $('optTeams').value);
     saveScores();
@@ -227,13 +234,26 @@ export function createRounds(o) {
     const inDeck = new Set(G.deck);
     st.set('deck', { drawn: cards.filter((_, i) => !inDeck.has(i)).map(keyOf) });
   }
+  // With o.balanceBy(card) (a group name, such as the word list a card is from), a draw first picks
+  // one of the groups at random, then the next card from that group: each ticked list comes up as
+  // often as the others, however many cards it has.
+  function nextAt() {
+    if (!o.balanceBy) return G.deck.findIndex(fits);
+    const groups = [...new Set(G.deck.filter(fits).map(i => o.balanceBy(cards[i])))];
+    if (!groups.length) return -1;
+    const g = groups[Math.floor(Math.random() * groups.length)];
+    return G.deck.findIndex(i => fits(i) && o.balanceBy(cards[i]) === g);
+  }
   function drawCard() {
-    let at = G.deck.findIndex(fits);
+    let at = nextAt();
     if (at < 0) {   // this selection is used up: put its cards back, shuffled, without touching the others
-      G.deck = G.deck.concat(shuffle(cards.map((_, i) => i).filter(fits)));
-      at = G.deck.findIndex(fits);
+      const back = cards.map((_, i) => i).filter(fits);
+      G.deck = G.deck.concat(shuffle(back.length ? back : cards.map((_, i) => i)));   // nothing fits at all: any card
+      at = nextAt(); if (at < 0) at = G.deck.length - 1;
     }
-    const card = cards[G.deck.splice(at, 1)[0]]; saveDeck(); return card;
+    const card = cards[G.deck.splice(at, 1)[0]];
+    if (o.sameAs) { const k = o.sameAs(card); G.deck = G.deck.filter(i => o.sameAs(cards[i]) !== k); }
+    saveDeck(); return card;
   }
   // The card on screen when a round ends has been seen, so it never goes back in the deck
   // (the next team would start with it). endRound lists it as missed; stop() just drops it.
@@ -258,7 +278,7 @@ export function createRounds(o) {
     G.results = []; G.card = null; armed = true; setPaused(false);
     $('pClock').textContent = fmt(G.roundMs); $('pClock').classList.remove('low');
     $('btnPause').textContent = 'Pause'; setControls(false);
-    o.startCue(true); o.show('play'); keepAwake(); changed();
+    o.startCue(true); show('play'); keepAwake(); changed();
   }
   // readyFirst: Start game shows the "you're up" screen first, like between rounds, so the first
   // team can get ready before the clock runs.
@@ -266,7 +286,7 @@ export function createRounds(o) {
     syncTeams(); updateDeckInfo(); renderScores();
     const team = G.teams[G.current].name;
     $('rBanner').textContent = o.readyText ? o.readyText(team) : `${team}, you're up`;
-    o.show('ready'); changed();
+    show('ready'); changed();
   }
   function startRound() {
     if (armed) { armed = false; o.startCue(false); }
@@ -274,11 +294,11 @@ export function createRounds(o) {
     syncTeams();
     G.roundMs = Number($('optTime').value) * 1000;
     st.set('time', G.roundMs / 1000);
-    G.results = []; shown.length = 0; G.card = drawCard(); G.phase = 'playing'; shownAt = Date.now(); setUndo();
+    G.results = []; shown.length = 0; G.card = drawCard(); G.phase = 'playing'; shownAt = Date.now(); setUndo(); renderSkip();
     G.endsAt = Date.now() + G.roundMs; lastBeep = -1;
     $('pClock').textContent = fmt(G.roundMs); $('pClock').classList.remove('low');
     $('btnPause').textContent = 'Pause'; setPaused(false);
-    o.show('play'); renderScores(); o.renderCard(G.card); keepAwake(); beep(660, .15);
+    show('play'); renderScores(); o.renderCard(G.card); keepAwake(); beep(660, .15);
     clearInterval(tick); tick = setInterval(onTick, 250);
     changed();
   }
@@ -295,11 +315,20 @@ export function createRounds(o) {
   // score a card nobody saw.
   const ANSWER_GAP = 500;
   let shownAt = 0;
+  const skipLimit = () => $('optSkips') ? Number($('optSkips').value) || 0 : 0;
+  const skipsUsed = () => G.results.filter(r => !r.got).length;
+  function renderSkip() {
+    const lim = skipLimit(); if (!lim) { $('btnSkip').textContent = 'Skip'; return; }
+    const left = Math.max(0, lim - skipsUsed());
+    $('btnSkip').textContent = left ? `Skip (${left} left)` : 'No skips left';
+    if (G.phase === 'playing') $('btnSkip').disabled = !left;
+  }
   function answer(got) {
     if (G.phase !== 'playing' || Date.now() - shownAt < ANSWER_GAP) return;
+    if (!got && skipLimit() && skipsUsed() >= skipLimit()) return;
     G.results.push({ ...G.card, got }); shown.push(G.card);
     if (got) { G.teams[G.current].score++; saveScores(); renderScores(); beep(1046, .1); }
-    G.card = drawCard(); o.renderCard(G.card); shownAt = Date.now(); setUndo(); updateDeckInfo(); changed();
+    G.card = drawCard(); o.renderCard(G.card); shownAt = Date.now(); setUndo(); renderSkip(); updateDeckInfo(); changed();
   }
   // Undo the last Got It or Skip: its point comes off, its card comes back on screen, and the card
   // that was showing goes back on top of the deck.
@@ -310,26 +339,26 @@ export function createRounds(o) {
     if (r.got) { G.teams[G.current].score--; saveScores(); renderScores(); }
     const at = cards.indexOf(G.card);
     if (at >= 0) { G.deck.unshift(at); saveDeck(); }
-    G.card = card; o.renderCard(G.card); shownAt = Date.now(); setUndo(); updateDeckInfo(); changed();
+    G.card = card; o.renderCard(G.card); shownAt = Date.now(); setUndo(); renderSkip(); updateDeckInfo(); changed();
   }
   function togglePause() {
     if (G.phase === 'playing') {
       G.pausedLeft = G.endsAt - Date.now(); G.phase = 'paused';
-      $('btnPause').textContent = 'Resume'; setPaused(true);
+      $('btnPause').textContent = 'Resume'; setPaused(true); $('btnGot').disabled = $('btnSkip').disabled = true;
     } else if (G.phase === 'paused') {
       G.endsAt = Date.now() + G.pausedLeft; G.phase = 'playing';
-      $('btnPause').textContent = 'Pause'; setPaused(false);
+      $('btnPause').textContent = 'Pause'; setPaused(false); $('btnGot').disabled = $('btnSkip').disabled = false; renderSkip();
     }
     changed();
   }
   function endRound() {
     if (G.phase !== 'playing' && G.phase !== 'paused') return;   // already over (the clock ran out while End round was asking)
     clearInterval(tick);
-    if (G.card) G.results.push({ ...G.card, got: false });
+    if (G.card) { G.results.push({ ...G.card, got: false }); shown.push(G.card); }
     discard(); G.phase = 'over'; setPaused(false); setUndo();
     G.turns++; saveScores();
     beep(220, .6, .3);
-    renderOver(); o.show('over'); changed();
+    renderOver(); show('over'); changed();
   }
   // The round-over screen. Tapping a result switches it between ✓ and ✗ and fixes the score, for
   // a mis-tap; if that decides (or undecides) the game, the banner and button follow.
@@ -355,24 +384,59 @@ export function createRounds(o) {
     renderOver(); changed();
   }
   function nextRound() {
-    if (G.winner) { stop(); resetScores(); G.phase = 'setup'; G.results = []; updateDeckInfo(); renderScores(); o.show('setup'); changed(); return; }
+    if (G.winner) { stop(); resetScores(); G.phase = 'setup'; G.results = []; updateDeckInfo(); renderScores(); show('setup'); changed(); return; }
     G.current = (G.current + 1) % G.teams.length; saveScores();
     G.phase = 'setup'; updateDeckInfo(); renderScores();
     const team = G.teams[G.current].name;
     $('rBanner').textContent = o.readyText ? o.readyText(team) : `${team}, you're up`;
-    o.show('ready'); changed();
+    show('ready'); changed();
   }
   // New game: stop any round, every score back to 0, first team up, back to setup.
   // The deck carries on; reshuffle puts every card back.
   async function newGame() {
     if (!await ask('Any round in progress stops, and every team goes back to 0.', { title: 'Start a new game?', ok: 'New game' })) return;
     stop(); syncTeams(); resetScores();
-    G.phase = 'setup'; G.results = []; updateDeckInfo(); renderScores(); o.show('setup'); changed();
+    G.phase = 'setup'; G.results = []; updateDeckInfo(); renderScores(); show('setup'); changed();
   }
   function stop() { clearInterval(tick); discard(); setPaused(false); if (armed) { armed = false; o.startCue(false); setControls(true); } }
 
+  // The round in progress is saved after every change, so a reload (or the phone throwing the
+  // tab away) comes back to the same screen: the clock keeps running from when it started, the
+  // card and this round's results come back, and a round whose time ran out meanwhile ends.
+  // A saved round more than 15 minutes old is dropped.
+  const ROUND_FOR = 15 * 60e3;
+  function saveRound() {
+    st.set('round', {
+      at: Date.now(), screen, phase: G.phase, armed, endsAt: G.endsAt, pausedLeft: G.pausedLeft, roundMs: G.roundMs,
+      card: G.card ? keyOf(G.card) : null, results: G.results.map((r, i) => ({ k: keyOf(shown[i] || r), got: r.got })),
+    });
+  }
+  function restoreRound() {
+    const r = st.get('round', null);
+    if (!r || Date.now() - r.at > ROUND_FOR || r.screen === 'setup') return false;
+    const byKey = new Map(cards.map(c => [keyOf(c), c]));
+    const back = (r.results || []).filter(x => byKey.has(x.k));
+    shown.length = 0; back.forEach(x => shown.push(byKey.get(x.k)));
+    G.results = back.map(x => ({ ...byKey.get(x.k), got: x.got }));
+    G.roundMs = r.roundMs || G.roundMs;
+    if (r.screen === 'ready') { toReady(); return true; }
+    if (r.screen === 'over' && r.phase === 'over') { G.phase = 'over'; renderOver(); show('over'); return true; }
+    if (r.screen === 'play' && r.armed && o.tapToStart) { armRound(); return true; }
+    if (r.screen !== 'play' || (r.phase !== 'playing' && r.phase !== 'paused')) return false;
+    G.card = r.card && byKey.get(r.card) || drawCard();
+    G.phase = r.phase; G.endsAt = r.endsAt; G.pausedLeft = r.pausedLeft || 0; lastBeep = -1; shownAt = 0;
+    syncTeams(); renderScores(); show('play'); o.renderCard(G.card); setControls(true); keepAwake();
+    if (G.phase === 'paused') { $('btnPause').textContent = 'Resume'; setPaused(true); $('btnGot').disabled = $('btnSkip').disabled = true; }
+    else { $('btnPause').textContent = 'Pause'; setPaused(false); renderSkip(); }
+    $('pClock').textContent = fmt(G.phase === 'paused' ? G.pausedLeft : G.endsAt - Date.now());
+    clearInterval(tick); tick = setInterval(onTick, 250);
+    onTick(); changed();
+    return true;
+  }
+
   // Wire up the shared controls.
   $('optTime').value = String(st.get('time', 120));
+  if ($('optSkips')) { $('optSkips').value = String(st.get('skips', 0)); if (!$('optSkips').value) $('optSkips').value = '0'; $('optSkips').onchange = () => st.set('skips', Number($('optSkips').value)); }
   $('optGoal').value = st.get('goal', '0'); if (!$('optGoal').value) $('optGoal').value = '0';
   $('optGoal').onchange = () => { st.set('goal', $('optGoal').value); updateDeckInfo(); changed(); };
   $('optTeams').value = st.get('teamsText', 'Team A, Team B');
@@ -406,8 +470,9 @@ export function createRounds(o) {
   $('btnEnd').onclick = async () => { if (await ask('', { title: 'End this round now?', ok: 'End round' })) endRound(); };
   $('btnNext').onclick = nextRound;
   $('optTeams').onchange = () => { syncTeams(); renderScores(); changed(); };
-  $('optTime').onchange = updateDeckInfo;
+  $('optTime').onchange = () => { if (G.phase === 'setup') G.roundMs = Number($('optTime').value) * 1000; st.set('time', Number($('optTime').value)); updateDeckInfo(); changed(); };
   loadDeck(); updateDeckInfo(); renderScores();
+  G.restored = restoreRound();
 
   return Object.assign(G, {
     newGame, stop, updateDeckInfo, goalText,

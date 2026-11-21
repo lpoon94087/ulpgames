@@ -14,6 +14,7 @@ import { $, esc, fmt, keepAwake } from './common.js';
 //   endsAt / left            the clock: server time the round ends, or ms left while stopped
 //   results                  [{ main, sub, got }] once the round is over
 //   banner                   optional: overrides the viewer's message for this phase
+//   away                     set by the database when the moderator's device drops off
 
 const db = getDatabase(initializeApp({
   apiKey: 'AIzaSyDbzdtJUIyNIsZ1CnxArgwa8G7mfqb1sKQ',
@@ -109,7 +110,12 @@ export function hostRoom({ game, state }) {
       const n = snap.size;
       $('viewerCount').textContent = n ? `${n} viewer${n > 1 ? 's' : ''} connected ✓` : 'Waiting for a viewer…';
     });
-    onValue(ref(db, '.info/connected'), x => setStatus(x.val() ? 'Room ' + c : 'Reconnecting…', !!x.val()));
+    // If this device drops off (tab closed, phone asleep, no signal), the database marks the state
+    // `away` so the viewers can say so; the next send (on reconnect) clears it.
+    onValue(ref(db, '.info/connected'), x => {
+      if (x.val()) { onDisconnect(ref(db, `rooms/${c}/state/away`)).set(true).catch(() => {}); send(); }
+      setStatus(x.val() ? 'Room ' + c : 'Reconnecting…', !!x.val());
+    });
     send();
   }
   function send() {
@@ -172,6 +178,8 @@ export function viewRoom({ game, show, render: custom, params = { view: 'join', 
       }
       history.replaceState(null, '', `?${board ? params.board : params.view}=` + code);
       state = s; show('viewer'); custom ? custom(s, board) : render();
+      // The moderator's device has dropped off: say so, instead of a clock stuck at 0:00.
+      $('vAway').classList.toggle('hidden', !s.away || s.phase === 'closed');
     }, err => { $('joinMsg').textContent = 'Could not reach the game database: ' + err.message; }));
     clearInterval(clock); clock = setInterval(tick, 250);
   }

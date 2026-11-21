@@ -70,6 +70,9 @@
       <label style="display:flex;gap:10px;align-items:center;margin:14px 0 0;color:var(--text);font-size:15px">
         <input type="checkbox" id="optCover" style="width:auto" checked> Cover each new word until it's tapped
       </label>
+      <label style="display:flex;gap:10px;align-items:center;margin:10px 0 0;color:var(--text);font-size:15px">
+        <input type="checkbox" id="optSingle" style="width:auto"> Single words only (no phrases or long titles)
+      </label>
     </div>
     <button class="primary" id="btnFree" style="width:100%;margin-top:16px;padding:22px;font-size:22px">Just words</button>
     <div class="panel" style="margin-top:16px">
@@ -83,6 +86,15 @@
             <option value="90">1½ minutes</option>
             <option value="120" selected>2 minutes</option>
             <option value="180">3 minutes</option>
+          </select>
+        </div>
+        <div>
+          <label for="optSkips">Skips per round</label>
+          <select id="optSkips">
+            <option value="0" selected>No limit</option>
+            <option value="1">1</option>
+            <option value="3">3</option>
+            <option value="5">5</option>
           </select>
         </div>
         <div>
@@ -119,6 +131,7 @@
 
   <!-- Viewer: a read-only copy of the moderator's word -->
   <section id="viewer" class="hidden viewer-stage">
+    <div class="away hidden" id="vAway">The moderator's phone has gone offline. This screen carries on as soon as it's back.</div>
     <div class="scorebar" id="vScores"></div>
     <div class="clock" id="vClock">2:00</div>
     <div class="answer-label" id="vNote"></div>

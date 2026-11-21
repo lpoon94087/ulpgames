@@ -64,6 +64,7 @@
 
   <!-- Viewer: game screen -->
   <section id="viewer" class="hidden viewer-stage">
+    <div class="away hidden" id="vAway">The moderator's phone has gone offline. This screen carries on as soon as it's back.</div>
     <div class="scorebar" id="vScores"></div>
     <div class="clock" id="vClock">2:00</div>
     <div class="answer-label" id="vNote"></div>
@@ -119,6 +120,9 @@
           <input id="optTeams" value="Team A, Team B">
         </div>
       </div>
+      <label style="display:flex;gap:10px;align-items:center;margin:14px 0 0;color:var(--text);font-size:15px">
+        <input type="checkbox" id="optCoverAns" style="width:auto"> One phone: hide the answer until it's tapped
+      </label>
       <p class="muted" id="deckInfo" style="font-size:14px"></p>
       <button class="primary" id="btnStart" style="width:100%">Start game</button>
     </div>
@@ -139,9 +143,10 @@
     <div class="scorebar" id="pScores"></div>
     <div class="clock" id="pClock">2:00</div>
     <div class="panel">
-      <div class="puzzle" id="pPuzzle" style="font-size:clamp(26px,6vw,48px);padding:8px"></div>
+      <div class="puzzle hide-on-pause" id="pPuzzle" style="font-size:clamp(26px,6vw,48px);padding:8px"></div>
       <div class="answer-label">Answer</div>
-      <div class="answer hide-on-pause" id="pAnswer"></div>
+      <div class="answer hide-on-pause" id="pAnswer" role="button" tabindex="0"></div>
+      <div class="answer-label hidden" id="pAnswerHint" style="cursor:pointer">Tap to see the answer</div>
     </div>
     <div class="actions">
       <button class="bad" id="btnSkip">Skip</button>

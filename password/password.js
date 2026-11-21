@@ -8,7 +8,7 @@ import { hostRoom, viewRoom, savedRoom } from '../shared/rooms.js';
 //   simple   a word is worth 1; play a set number of rounds, each team starting one word a round
 // The moderator runs it; viewers are a clue-giver screen (with the word) or a scoreboard
 // (without it), synced through a room (shared/rooms.js).
-const VERSION = '1.3', RELEASED = '2026-11-21';
+const VERSION = '1.4', RELEASED = '2026-11-21';
 const START_VALUE = 10, MAX_CLUES = 10;
 
 const sections = ['home', 'join', 'viewer', 'setup', 'play', 'done', 'over'];

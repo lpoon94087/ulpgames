@@ -3,7 +3,7 @@ import { hostRoom, viewRoom, roundState, savedRoom } from '../shared/rooms.js';
 
 // Mad Gab: a moderator device runs the game; viewer devices show the team only the puzzle.
 // They sync through a room (shared/rooms.js).
-const VERSION = '1.12', RELEASED = '2026-11-21';
+const VERSION = '1.13', RELEASED = '2026-11-21';
 
 const sections = ['home', 'demo', 'join', 'viewer', 'setup', 'ready', 'play', 'over'];
 const show = name => sections.forEach(s => $(s).classList.toggle('hidden', s !== name));
@@ -34,9 +34,20 @@ async function loadCards() {
   return cards;
 }
 
+// One phone, passed around (optCoverAns): the answer stays blurred until the moderator taps it,
+// so the person holding the phone can read the puzzle out without seeing the answer.
+function coverAnswer(on) {
+  $('pAnswer').classList.toggle('covered', on);
+  $('pAnswerHint').classList.toggle('hidden', !on);
+}
+$('pAnswer').onclick = () => coverAnswer(!$('pAnswer').classList.contains('covered'));
+$('pAnswerHint').onclick = () => coverAnswer(false);
+
 async function startModerator() {
   role = 'moderator'; show('setup'); keepAwake();
   $('optLevel').value = st.get('level', 'all');
+  $('optCoverAns').checked = st.get('coverAns', false);
+  $('optCoverAns').onchange = () => st.set('coverAns', $('optCoverAns').checked);
   let cards;
   try { cards = await loadCards(); } catch {
     $('deckInfo').textContent = 'Could not load flashcards.txt — open this page from a web server, not as a local file.';
@@ -47,9 +58,9 @@ async function startModerator() {
     fits: i => level() === 'all' || (level() === 'hard') === cards[i].hard,
     deckName: () => ({ easy: 'easy', hard: 'hard', all: '' }[level()]),
     info: () => `${$('optLevel').selectedOptions[0].textContent} cards`,
-    renderCard: c => { $('pPuzzle').textContent = c.puzzle; $('pAnswer').textContent = c.answer; },
+    renderCard: c => { $('pPuzzle').textContent = c.puzzle; $('pAnswer').textContent = c.answer; coverAnswer($('optCoverAns').checked); },
     result: r => [r.answer, r.puzzle],
-    onChange: () => room.send(),
+    onChange: () => room && room.send(),
   });
   $('optLevel').onchange = () => { st.set('level', level()); G.updateDeckInfo(); };
   // What the viewers see: the puzzle, never the answer, until the round is over.

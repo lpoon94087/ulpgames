@@ -75,6 +75,16 @@ label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px
   font-size: clamp(34px, 9vw, 84px); padding: 24px 8px; word-break: break-word;
 }
 .answer { text-align: center; font-size: clamp(22px, 5vw, 36px); color: var(--good); font-weight: 700; }
+.away { background: color-mix(in srgb, var(--bad) 22%, var(--panel)); border: 1px solid var(--bad); border-radius: 12px; padding: 10px 14px; text-align: center; font-weight: 600; }
+.answer.covered { filter: blur(14px); cursor: pointer; user-select: none; }
+/* Viewer screens on a TV or a big monitor: a bigger clock and card, and room to spread out */
+@media (min-width: 1000px) {
+  body:has(#viewer:not(.hidden)) main { max-width: 1600px; }
+  #viewer .clock { font-size: clamp(64px, 9vw, 170px); }
+  #viewer .puzzle { font-size: clamp(48px, 6.5vw, 140px); }
+  #viewer .banner { font-size: clamp(26px, 3vw, 54px); }
+  #viewer .team { font-size: clamp(16px, 1.6vw, 28px); }
+}
 .answer-label { text-align: center; font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .actions button { padding: 26px; font-size: 24px; }
