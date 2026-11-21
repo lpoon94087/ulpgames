@@ -6,7 +6,7 @@ import { hostRoom, viewRoom, roundState, savedRoom } from '../shared/rooms.js';
 // "Just words" hands out one word at a time; timed rounds use the shared round engine.
 // Like Mad Gab, a device is either the moderator (every control; works on its own too)
 // or a read-only viewer of the moderator's word, synced through a room (shared/rooms.js).
-const VERSION = '1.10', RELEASED = '2026-11-19';
+const VERSION = '1.11', RELEASED = '2026-11-21';
 
 const sections = ['home', 'setup', 'free', 'ready', 'play', 'over', 'join', 'viewer'];
 let at = 'home', room = null, role = null;

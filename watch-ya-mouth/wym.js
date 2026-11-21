@@ -1,7 +1,7 @@
 import { $, lines, initMenu, initAbout, createRounds } from '../shared/common.js';
 
 // Watch Ya Mouth: one device, held by the reader. Phrases come from phrases.txt, one per line.
-const VERSION = '1.6', RELEASED = '2026-11-19';
+const VERSION = '1.7', RELEASED = '2026-11-21';
 
 const sections = ['setup', 'ready', 'play', 'over'];
 const show = name => sections.forEach(s => $(s).classList.toggle('hidden', s !== name));
@@ -29,7 +29,7 @@ show('setup');
 try {
   const phrases = [...new Set(await lines('phrases.txt'))].map(phrase => ({ phrase }));
   G = createRounds({
-    prefix: 'wym', cards: phrases, show,
+    prefix: 'wym', cards: phrases, show, readyFirst: true,
     renderCard: c => { $('pPhrase').textContent = c.phrase; },
     result: r => [r.phrase],
     readyText: team => `${team}, you're up`,

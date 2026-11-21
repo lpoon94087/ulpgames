@@ -42,6 +42,9 @@ button {
 button:active { transform: scale(.98); }
 button:disabled { opacity: .4; cursor: default; }
 button.primary { background: var(--accent); color: #1a1600; }
+/* Keyboard focus (and the button a dialog focuses when it opens) gets a ring in the game's own
+   colour, not the browser's blue. */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [role="button"]:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 60%, #fff); outline-offset: 2px; }
 button.good { background: var(--good); color: #002414; }
 button.bad { background: var(--bad); color: #2a0000; }
 input, select {

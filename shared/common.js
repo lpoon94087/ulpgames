@@ -49,7 +49,8 @@ export function beep(freq = 880, dur = 0.12, vol = 0.2) {
 // ───────────────────────── ASK ─────────────────────────
 // A yes/no question shown in the page, used instead of the browser's confirm() everywhere: a
 // browser dialog can hide behind a full-screen page, and it looks different on every device.
-// Resolves true for OK and false for Cancel (or Escape, or a tap outside the box).
+// Resolves true for OK, false for Cancel, and null for Escape or a tap outside the box (also
+// falsy, so `if (!await ask(…))` treats it as Cancel; a caller can tell it apart when Cancel does something).
 //   ask('Every team goes back to 0.', { title: 'Start a new game?', ok: 'New game' })
 let askBox = null;
 export function ask(text, { title = 'Are you sure?', ok = 'OK', cancel = 'Cancel' } = {}) {
@@ -67,10 +68,10 @@ export function ask(text, { title = 'Are you sure?', ok = 'OK', cancel = 'Cancel
   q('.ask-ok').textContent = ok; q('.ask-cancel').textContent = cancel;
   return new Promise(done => {
     const finish = v => { askBox.classList.add('hidden'); document.removeEventListener('keydown', key, true); done(v); };
-    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); finish(false); } };
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); finish(null); } };
     q('.ask-ok').onclick = () => finish(true);
     q('.ask-cancel').onclick = () => finish(false);
-    askBox.onclick = e => { if (e.target === askBox) finish(false); };
+    askBox.onclick = e => { if (e.target === askBox) finish(null); };
     document.addEventListener('keydown', key, true);
     askBox.classList.remove('hidden'); q('.ask-ok').focus();
   });
@@ -162,6 +163,7 @@ export function initAbout({ version, released, cardsText }) {
 //               play screen with the clock stopped and the card showing START; tapping the card
 //               starts the round. The page's startCue(on) shows or hides the START card.
 //   startCue(on) required with tapToStart
+//   readyFirst  optional: Start game opens the "you're up" screen first, as between rounds
 export function createRounds(o) {
   const st = store(o.prefix);
   const cards = o.cards, fits = o.fits || (() => true);
@@ -188,15 +190,25 @@ export function createRounds(o) {
     ['pScores', 'oScores', 'rScores'].forEach(id => $(id).innerHTML = html);
   }
 
-  // Deck: a shuffled order of card indexes, saved so cards don't repeat across sessions.
-  // It holds every card; fits() picks which ones get drawn.
+  // Deck: a shuffled order of card indexes; it holds every card not yet drawn, and fits() picks
+  // which ones get drawn. What's saved is the cards already drawn, by their text, so cards don't
+  // repeat across sessions, and editing the card file keeps that history (new cards go straight
+  // into the deck; removed ones are forgotten).
+  const keyOf = c => JSON.stringify(c);
   function loadDeck() {
     const saved = st.get('deck', null);
-    if (saved && saved.n === cards.length && Array.isArray(saved.order)) G.deck = saved.order;
-    else reshuffle();
+    if (saved && Array.isArray(saved.drawn)) {
+      const drawn = new Set(saved.drawn);
+      G.deck = shuffle(cards.map((_, i) => i).filter(i => !drawn.has(keyOf(cards[i]))));
+    } else if (saved && saved.n === cards.length && Array.isArray(saved.order)) {
+      G.deck = saved.order; saveDeck();   // the old index-based save, from before 2026-11-21
+    } else reshuffle();
   }
   function reshuffle() { G.deck = shuffle(cards.map((_, i) => i)); saveDeck(); updateDeckInfo(); }
-  function saveDeck() { st.set('deck', { n: cards.length, order: G.deck }); }
+  function saveDeck() {
+    const inDeck = new Set(G.deck);
+    st.set('deck', { drawn: cards.filter((_, i) => !inDeck.has(i)).map(keyOf) });
+  }
   function drawCard() {
     let at = G.deck.findIndex(fits);
     if (at < 0) {   // this selection is used up: put its cards back, shuffled, without touching the others
@@ -228,13 +240,21 @@ export function createRounds(o) {
     $('btnPause').textContent = 'Pause'; setControls(false);
     o.startCue(true); o.show('play'); keepAwake(); changed();
   }
+  // readyFirst: Start game shows the "you're up" screen first, like between rounds, so the first
+  // team can get ready before the clock runs.
+  function toReady() {
+    syncTeams(); updateDeckInfo(); renderScores();
+    const team = G.teams[G.current].name;
+    $('rBanner').textContent = o.readyText ? o.readyText(team) : `${team}, you're up`;
+    o.show('ready'); changed();
+  }
   function startRound() {
     if (armed) { armed = false; o.startCue(false); }
     setControls(true);
     syncTeams();
     G.roundMs = Number($('optTime').value) * 1000;
     st.set('time', G.roundMs / 1000);
-    G.results = []; G.card = drawCard(); G.phase = 'playing';
+    G.results = []; G.card = drawCard(); G.phase = 'playing'; shownAt = Date.now();
     G.endsAt = Date.now() + G.roundMs; lastBeep = -1;
     $('pClock').textContent = fmt(G.roundMs); $('pClock').classList.remove('low');
     $('btnPause').textContent = 'Pause'; setPaused(false);
@@ -251,11 +271,15 @@ export function createRounds(o) {
     if (sec <= 5 && sec > 0 && sec !== lastBeep) { lastBeep = sec; beep(880, .08, .12); }
     if (left <= 0) endRound();
   }
+  // A second tap within ANSWER_GAP of a new card showing is a double-tap: ignored, so it can't
+  // score a card nobody saw.
+  const ANSWER_GAP = 500;
+  let shownAt = 0;
   function answer(got) {
-    if (G.phase !== 'playing') return;
+    if (G.phase !== 'playing' || Date.now() - shownAt < ANSWER_GAP) return;
     G.results.push({ ...G.card, got });
     if (got) { G.teams[G.current].score++; saveScores(); renderScores(); beep(1046, .1); }
-    G.card = drawCard(); o.renderCard(G.card); updateDeckInfo(); changed();
+    G.card = drawCard(); o.renderCard(G.card); shownAt = Date.now(); updateDeckInfo(); changed();
   }
   function togglePause() {
     if (G.phase === 'playing') {
@@ -268,6 +292,7 @@ export function createRounds(o) {
     changed();
   }
   function endRound() {
+    if (G.phase !== 'playing' && G.phase !== 'paused') return;   // already over (the clock ran out while End round was asking)
     clearInterval(tick);
     if (G.card) G.results.push({ ...G.card, got: false });
     discard(); G.phase = 'over'; setPaused(false);
@@ -302,7 +327,18 @@ export function createRounds(o) {
   $('optTeams').value = st.get('teamsText', 'Team A, Team B');
   G.teams = st.get('teams', null) || parseTeams();
   G.current = st.get('current', 0) % G.teams.length;
-  $('btnStart').onclick = o.tapToStart ? armRound : startRound;
+  // Start game from the setup screen. If the last game's scores are still there (saved on this
+  // phone, maybe from last week), ask whether to carry on with them or start from 0.
+  const begin = o.tapToStart ? armRound : o.readyFirst ? toReady : startRound;
+  $('btnStart').onclick = async () => {
+    if (G.teams.some(t => t.score)) {
+      const scores = G.teams.map(t => `${t.name} ${t.score}`).join(' · ');
+      const go = await ask(`The last game's scores are still here: ${scores}.`, { title: 'Carry on the last game?', ok: 'Carry on', cancel: 'Start from 0' });
+      if (go === null) return;
+      if (!go) { G.teams.forEach(t => t.score = 0); G.current = 0; saveScores(); renderScores(); }
+    }
+    begin();
+  };
   if (o.tapToStart) {
     const card = $(o.tapToStart), go = () => { if (armed) startRound(); };
     card.addEventListener('click', go);

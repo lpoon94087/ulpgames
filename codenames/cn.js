@@ -5,7 +5,7 @@ import { $, ask, esc, shuffle, lines, keepAwake, initMenu, initAbout } from '../
 // Words come from the lists in lists/ (named in lists.json), picked on the start screen;
 // ?addon=WORD,WORD adds more. The revealed-card pictures are in img/,
 // listed in images.json. ?demo turns a random card every second, for showing the board off.
-const VERSION = '2.26', RELEASED = '2026-11-20';
+const VERSION = '2.27', RELEASED = '2026-11-21';
 
 const params = new URLSearchParams(location.search);
 const views = ['choose', 'board', 'key'];
@@ -26,7 +26,8 @@ const local = {
 };
 
 // A game is the board and the key:
-//   board = { words, turned }  the 25 words in order, and 1 for each card that's been turned over
+//   board = { words, turned, gid }  the 25 words in order, 1 for each card that's been turned over,
+//                                   and an id for this deal (see ROOM)
 //   key   = { first, cells }   who goes first, and what each of the 25 places is:
 //                              'red' | 'blue' | 'bystander' | 'assassin' (9 / 8 / 7 / 1)
 // Place i on the key is card i on the board. Both are shared through the room.
@@ -35,8 +36,16 @@ let words = [], board = null, key = null;   // words: the pool to deal from, [{ 
 // each card's colour); a spymaster screen brings the key. A room missing a part gets it from the
 // first screen that has it.
 const mine = { board: false, key: false };
-const validBoard = b => b && Array.isArray(b.words) && b.words.length === 25 && Array.isArray(b.turned) && b.turned.length === 25;
-const validKey = k => k && (k.first === 'red' || k.first === 'blue') && Array.isArray(k.cells) && k.cells.length === 25;
+// Anything from a room is checked before use: anyone can write to a room, and the key's cells end
+// up in class names. A key must be 9 + 8 + 7 + 1 of the right kinds, the team going first having 9.
+const validWords = w => Array.isArray(w) && w.length === 25 && w.every(x => typeof x === 'string' && x.length <= 40);
+const validBoard = b => b && validWords(b.words) && Array.isArray(b.turned) && b.turned.length === 25;
+function validKey(k) {
+  if (!k || (k.first !== 'red' && k.first !== 'blue') || !Array.isArray(k.cells) || k.cells.length !== 25) return false;
+  const n = c => k.cells.filter(x => x === c).length, second = k.first === 'red' ? 'blue' : 'red';
+  return n(k.first) === 9 && n(second) === 8 && n('bystander') === 7 && n('assassin') === 1;
+}
+const newGid = () => Math.random().toString(36).slice(2, 10);
 const sameKey = (a, b) => a && b && a.first === b.first && a.cells.join() === b.cells.join();
 // A word in a list may have tags ("LONDON #city", "WITCH #person #creature"): a board never gets
 // two words that share a tag, so a spymaster can't link two of them with a clue like "cities".
@@ -63,7 +72,7 @@ function dealBoard() {
     out.push(w);
     if (out.length === 25) break;
   }
-  return { words: out, turned: Array(25).fill(0) };
+  return { words: out, turned: Array(25).fill(0), gid: newGid() };
 }
 function dealKey() {
   const first = Math.random() < .5 ? 'red' : 'blue', second = first === 'red' ? 'blue' : 'red';
@@ -77,7 +86,7 @@ const touch = () => local.set(ACTIVE_STORE, Date.now());
 function ensureGame() {
   if (stale && !key && !board) { key = dealKey(); board = dealBoard(); save(); }
   if (!key) { const k = local.get(KEY_STORE); key = validKey(k) ? { first: k.first, cells: k.cells } : dealKey(); local.set(KEY_STORE, key); }
-  if (!board) { const b = local.get(BOARD_STORE); board = validBoard(b) ? { words: b.words, turned: b.turned } : dealBoard(); local.set(BOARD_STORE, board); }
+  if (!board) { const b = local.get(BOARD_STORE); board = validBoard(b) ? { words: b.words, turned: b.turned, gid: b.gid || newGid() } : dealBoard(); local.set(BOARD_STORE, board); }
 }
 const save = () => { local.set(BOARD_STORE, board); local.set(KEY_STORE, key); touch(); };
 
@@ -218,7 +227,9 @@ function checkFinale(left) {
   const was = finaleSeen;
   finaleSeen = { game, end };
   if (!end) { if (was && was.game !== game) closeFinale(); return; }
-  if (!was || was.game !== game || was.end === end) return;   // first look, or nothing new
+  // First look, or nothing new, or the game had already ended (cards turned after a win, to
+  // see them, never bring up a second finale, not even for the assassin).
+  if (!was || was.game !== game || was.end) return;
   setTimeout(() => showFinale(end), 700);                     // after the card has flipped
 }
 function showFinale(end) {
@@ -250,7 +261,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFinale(
 function tap(i) {
   board.turned[i] = board.turned[i] ? 0 : 1;
   save(); repaint(); renderMarks(); renderLeft();
-  send({ turned: board.turned });
+  send({ [`turns/${board.gid}/${i}`]: board.turned[i] });
 }
 
 // Demo: every second a random face-down card turns.
@@ -281,7 +292,7 @@ async function newGame({ askFirst = true } = {}) {
   repaint(); renderKey(); renderLeft();
   sendGame();
 }
-const sendGame = () => send({ words: board.words, turned: board.turned, first: key.first, cells: key.cells });
+const sendGame = () => send({ ...boardParts(), first: key.first, cells: key.cells });
 
 // ───────────────────────── SPYMASTER KEY ─────────────────────────
 // 9 places for the team that goes first, 8 for the other, 7 bystanders, 1 assassin. The frame's
@@ -350,20 +361,31 @@ function openKey() {
 // the top right. A screen starts in a random room of its own, so a game can start straight away.
 // Tap the code and type another screen's code to join its game: the room's board and key then
 // show on this screen too, and whatever the room lacks (a board, a key) this screen fills in.
-// The room holds: words, turned (the board) and first, cells (the key).
+// The room holds: words, gid, turns (the board) and first, cells (the key). Each deal has its own
+// gid, and its turned cards are turns/<gid>/<i>, written one card at a time: two screens turning
+// cards at once don't undo each other, and a turn that arrives late (a screen that was offline)
+// lands in its own game's turns, never on a newer deal. A new deal replaces the whole turns.
 // With no internet each screen works on its own.
 let room = null, last = null, pushOnJoin = false, roomState = { text: 'Connecting…', on: false, count: 0, code: '' };
 const others = () => roomState.code && roomState.count > 1;
 const send = part => { if (room && room.code && room.code()) room.send(part).catch(() => {}); };
+const boardParts = () => ({ words: board.words, gid: board.gid, turns: { [board.gid]: board.turned }, turned: null });
+// The room's board, if it has one. A room written by an older version has a turned list and no gid.
+function roomBoard(s) {
+  if (!validWords(s.words)) return null;
+  const t = typeof s.gid === 'string' ? s.turns && s.turns[s.gid] : s.turned;
+  if (typeof s.gid !== 'string' && !Array.isArray(t)) return null;
+  return { words: [...s.words], gid: typeof s.gid === 'string' ? s.gid : null, turned: Array.from({ length: 25 }, (_, i) => t && t[i] ? 1 : 0) };
+}
 const ownParts = () => ({
-  ...(mine.board ? { words: board.words, turned: board.turned } : {}),
+  ...(mine.board ? boardParts() : {}),
   ...(mine.key ? { first: key.first, cells: key.cells } : {}),
 });
 // Give the room the parts it doesn't have yet.
 function fillRoom() {
   if (!last || !room || !room.code) return;
   const part = {};
-  if (mine.board && !validBoard(last)) Object.assign(part, { words: board.words, turned: board.turned });
+  if (mine.board && !roomBoard(last)) Object.assign(part, boardParts());
   if (mine.key && !validKey(last)) Object.assign(part, { first: key.first, cells: key.cells });
   if (Object.keys(part).length) send(part);
 }
@@ -375,7 +397,12 @@ function onRoomState(s) {
   if (pushOnJoin) { pushOnJoin = false; sendGame(); return; }
   const newKey = validKey(s) && !sameKey(key, s);
   if (newKey) key = { first: s.first, cells: [...s.cells] };
-  if (validBoard(s)) board = { words: [...s.words], turned: [...s.turned] };
+  const rb = roomBoard(s);
+  if (rb) {
+    board = rb;
+    // An older version's room: give the deal a gid so turns can go card by card from here on.
+    if (!rb.gid) { board.gid = newGid(); if (mine.board) send(boardParts()); }
+  }
   // A room with a key but no board: a board screen joining it starts face down (its turned cards
   // belonged to a different key), and a spymaster screen shows no dots.
   else if (board && (newKey || !mine.board)) board.turned = Array(25).fill(0);
@@ -460,7 +487,7 @@ async function newRoom(btn, say) {
   say('Opening a new room…'); btn.disabled = true;
   try {
     ensureGame();
-    const code = await room.create({ words: board.words, turned: board.turned, first: key.first, cells: key.cells });
+    const code = await room.create({ ...boardParts(), first: key.first, cells: key.cells });
     say(`New room ${code}. Other screens can join it with that code.`);
   } catch (e) { say('Could not open a new room: ' + (e.message || e)); }
   finally { btn.disabled = false; }
