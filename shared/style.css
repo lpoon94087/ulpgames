@@ -289,3 +289,43 @@ body.cn #choose { display: flex; flex-direction: column; gap: 16px; }
 .cn-room { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
 .cn-room .code { margin: 4px 0; }
 .cn-room-new { text-align: right; max-width: 260px; }
+
+/* Just One Word */
+body.jow { --accent: #ff9f43; --jwA: #e5574d; --jwB: #4d8fe5; }
+body.jow button.primary { color: #2a1400; }
+.jw-lobby { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 16px; align-items: start; }
+@media (max-width: 700px) { .jw-lobby { grid-template-columns: 1fr; } }
+.jw-lobby #qr { display: flex; justify-content: center; margin-top: 8px; }
+.jw-lobby #qr img, .jw-lobby #qr canvas { background: #fff; padding: 8px; border-radius: 8px; }
+.jw-players { margin-top: 14px; display: grid; gap: 12px; }
+.jw-team .chips { margin-top: 6px; }
+.jw-player { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; font-size: 16px; flex: 0 0 auto !important;
+  border: 2px solid var(--line); background: var(--panel); }
+.jw-player.jw-a { border-color: var(--jwA); background: color-mix(in srgb, var(--jwA) 20%, var(--panel)); }
+.jw-player.jw-b { border-color: var(--jwB); background: color-mix(in srgb, var(--jwB) 20%, var(--panel)); }
+.jw-player.off { opacity: .5; }
+.jw-player .x { color: var(--muted); font-size: 13px; padding: 0 2px; }
+.jw-player .x:hover { color: var(--bad); }
+.team.jw-a { border-color: color-mix(in srgb, var(--jwA) 50%, transparent); }
+.team.jw-b { border-color: color-mix(in srgb, var(--jwB) 50%, transparent); }
+.team.jw-a.current { border-color: var(--jwA); background: color-mix(in srgb, var(--jwA) 22%, var(--panel)); }
+.team.jw-b.current { border-color: var(--jwB); background: color-mix(in srgb, var(--jwB) 22%, var(--panel)); }
+.jw-clues { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.jw-clue { display: inline-flex; flex-direction: column; align-items: center; padding: .35em .8em; border-radius: 14px; background: #fff; color: #111;
+  font-weight: 800; font-size: clamp(28px, 6vw, 84px); letter-spacing: .02em; border: 0; flex: 0 0 auto !important; line-height: 1.1; }
+.jw-clue.small { font-size: clamp(20px, 3.4vw, 40px); }
+.jw-clue small { font-size: 12px; font-weight: 600; color: #666; letter-spacing: 0; margin-top: 2px; }
+.jw-clue.out { background: transparent; color: var(--muted); text-decoration: line-through; border: 2px dashed var(--line); }
+.jw-clue.out small { color: var(--muted); }
+button.jw-clue { cursor: pointer; }
+.jw-word { text-align: center; font-weight: 900; font-size: clamp(40px, 10vw, 120px); color: var(--accent); letter-spacing: .03em; line-height: 1.05; word-break: break-word; }
+.jw-who { padding: 6px 14px; border-radius: 999px; border: 2px solid var(--line); font-size: clamp(16px, 2vw, 26px); }
+.jw-who.done { border-color: var(--good); color: var(--good); }
+.jw-who.off { opacity: .45; }
+.banner.jw-res-right { color: var(--good); }
+.banner.jw-res-wrong { color: var(--bad); }
+.jw-pick { padding: 18px 26px; font-size: 22px; border: 3px solid transparent; flex: 0 1 200px !important; }
+.jw-pick.jw-a { background: color-mix(in srgb, var(--jwA) 30%, var(--panel)); }
+.jw-pick.jw-b { background: color-mix(in srgb, var(--jwB) 30%, var(--panel)); }
+.jw-pick.on { border-color: #fff; }
+#stage .banner { font-size: clamp(26px, 4vw, 60px); }

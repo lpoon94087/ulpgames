@@ -241,8 +241,10 @@ export function viewRoom({ game, show, render: custom, params = { view: 'join', 
 // and resolves to 'ok', 'empty' (no game there), 'other' (another game's room) or 'bad' (not
 // 4 letters); send(part) changes the given fields of the state for everyone in the room (the
 // other fields are kept, so devices can each look after their own part).
-export function shareRoom({ game, onState, onStatus }) {
-  const ME = tabId(game);
+// Options: id, this device's presence id (a-z0-9, up to 16; default one per tab), for a game
+// that tracks players across reloads; onViewers(ids) gets the ids of the devices in the room.
+export function shareRoom({ game, onState, onStatus, id, onViewers }) {
+  const ME = id || tabId(game);
   let code = null, unsubs = [], live = false, count = 0;
   const report = text => onStatus({ text, on: live, count, code });
 
@@ -255,7 +257,10 @@ export function shareRoom({ game, onState, onStatus }) {
       if (live) { onDisconnect(me).remove(); set(me, true).catch(() => {}); }
       report(live ? '' : 'Reconnecting…');
     }));
-    unsubs.push(onValue(ref(db, `rooms/${c}/viewers`), snap => { count = snap.size; report(live ? '' : 'Reconnecting…'); }));
+    unsubs.push(onValue(ref(db, `rooms/${c}/viewers`), snap => {
+      count = snap.size; report(live ? '' : 'Reconnecting…');
+      if (onViewers) onViewers(Object.keys(snap.val() || {}));
+    }));
     unsubs.push(onValue(ref(db, `rooms/${c}/state`), snap => {
       const st = snap.val();
       onState(st && st.game === game ? st : null);

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Just One Word</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<link rel="stylesheet" href="../shared/style.css">
+</head>
+<body class="jow">
+<header>
+  <h1><button id="btnMenu" class="brand" aria-haspopup="true" aria-expanded="false">Just One <span>Word</span> <small>▾</small></button></h1>
+  <div id="menu" class="menu hidden" role="menu"></div>
+  <div class="status" id="status"></div>
+</header>
+
+<div id="about" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+  <div class="panel">
+    <h2 id="aboutTitle">Just One <span>Word</span></h2>
+    <div class="muted" id="aboutVersion"></div>
+    <p id="aboutCards"></p>
+    <p class="muted" style="font-size:15px">One player guesses a secret word. Everyone else writes a one-word clue on their own phone, all at once. Matching clues cancel out, so be original.</p>
+    <button class="primary" id="btnAboutClose" style="width:100%">Close</button>
+  </div>
+</div>
+
+<div id="howto" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="howTitle">
+  <div class="panel">
+    <h2 id="howTitle">How to <span>play</span></h2>
+    <ol style="padding-left:20px">
+      <li>Put the <b>Host</b> screen on a TV (or a tablet everyone can see). Players scan its QR code with their phones and type their names.</li>
+      <li>Each word, one player is the <b>guesser</b>. Their phone doesn't show the word. Everyone else on their team sees it and writes <b>one word</b> as a clue, without talking.</li>
+      <li>Matching clues <b>cancel out</b>: the same word, or the same root, like SNOW and SNOWY or RUN and RUNNING. A clue that's the secret word itself is out too. The phones mark these; the clue-givers can tap a clue to cancel or keep it, then tap <b>Show the clues</b>.</li>
+      <li>The guesser sees the clues that are left and gets <b>one guess</b>, out loud. A clue-giver taps <b>Right</b> or <b>Wrong</b>; the guesser can <b>Pass</b> instead.</li>
+      <li><b>Together</b>: everyone plays as one team through a pile of words. Right scores one; a pass loses that word; a wrong guess loses that word <i>and</i> the next one. How many can you get?</li>
+      <li><b>Two teams</b>: the teams take turns, one word each. Only the playing team writes clues; the other team watches. Most right answers wins.</li>
+    </ol>
+    <button class="primary" id="btnHowClose" style="width:100%">Got it</button>
+  </div>
+</div>
+
+<main>
+  <!-- Pick a role -->
+  <section id="home" class="hidden">
+    <div class="big-choice">
+      <button id="btnHost">Host<small>The shared screen, for a TV or tablet: the room code, the players, and the clues for the guesser.</small></button>
+      <button id="btnJoinHome">Player<small>Each player's phone: write your clue, or guess when it's your turn.</small></button>
+    </div>
+    <p class="center muted" style="margin:0">Teams need at least 4 players (2 a team), and play best with 6 or more. Together, 3 or more.</p>
+    <p class="center"><a class="back" href="../">← Home</a></p>
+  </section>
+
+  <!-- Player: join -->
+  <section id="join" class="hidden panel">
+    <label for="joinName">Your name</label>
+    <input id="joinName" maxlength="16" autocomplete="nickname" placeholder="Name">
+    <label for="joinCode" style="margin-top:12px">Room code (on the host screen)</label>
+    <div class="row">
+      <input id="joinCode" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="ABCD" style="font-size:28px;letter-spacing:6px;text-transform:uppercase">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto">Join</button>
+    </div>
+    <p class="muted" id="joinMsg"></p>
+  </section>
+
+  <!-- Host: lobby -->
+  <section id="lobby" class="hidden">
+    <div class="jw-lobby">
+      <div class="panel center">
+        <div class="muted">Join on your phone</div>
+        <div class="code" id="roomCode">····</div>
+        <div id="qr"></div>
+        <p class="muted" id="joinUrl" style="font-size:13px;word-break:break-all;margin:8px 0 0"></p>
+      </div>
+      <div class="panel">
+        <div class="row">
+          <div>
+            <label for="optMode">Play</label>
+            <select id="optMode">
+              <option value="coop" selected>Together (one team)</option>
+              <option value="teams">Two teams</option>
+            </select>
+          </div>
+          <div id="boxLabels">
+            <label for="optLabels">Team names</label>
+            <select id="optLabels">
+              <option value="rb" selected>Red and Blue</option>
+              <option value="ab">Team A and Team B</option>
+            </select>
+          </div>
+          <div>
+            <label for="optCount" id="lblCount">Words</label>
+            <select id="optCount"></select>
+          </div>
+          <div>
+            <label for="optLevel">Word level</label>
+            <select id="optLevel">
+              <option value="all" selected>All words</option>
+              <option value="easy">Easy only</option>
+              <option value="hard">Harder (no easy words)</option>
+            </select>
+          </div>
+        </div>
+        <div id="players" class="jw-players"></div>
+        <div class="row hidden" id="teamTools" style="margin-top:10px">
+          <button id="btnShuffleTeams">Shuffle teams</button>
+        </div>
+        <p class="muted" id="lobbyMsg" style="font-size:15px;margin:10px 0"></p>
+        <button class="primary" id="btnStartGame" style="width:100%">Start game</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Host: the game -->
+  <section id="stage" class="hidden viewer-stage">
+    <div class="scorebar" id="hScores"></div>
+    <div class="banner" id="hBanner"></div>
+    <p class="center muted" id="hSub" style="margin:0;font-size:clamp(16px,2vw,24px)"></p>
+    <div class="jw-clues" id="hClues"></div>
+    <div class="jw-word hidden" id="hWord"></div>
+    <div class="row" id="hActions" style="justify-content:center"></div>
+  </section>
+
+  <!-- Player: the game -->
+  <section id="play" class="hidden viewer-stage">
+    <div class="scorebar" id="mScores"></div>
+    <div class="banner" id="mBanner"></div>
+    <p class="center muted" id="mSub" style="margin:0"></p>
+    <div class="jw-word hidden" id="mWord"></div>
+    <div class="panel hidden" id="mWrite">
+      <label for="clueInput">Your clue: one word</label>
+      <div class="row">
+        <input id="clueInput" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" style="font-size:24px;text-transform:uppercase">
+        <button class="primary" id="btnSendClue" style="flex:0 0 auto">Send</button>
+      </div>
+      <p class="muted" id="clueMsg" style="font-size:14px;min-height:1.3em;margin:6px 0 0"></p>
+    </div>
+    <div class="jw-clues" id="mClues"></div>
+    <p class="center muted hidden" id="mHint" style="margin:0;font-size:14px"></p>
+    <div class="row" id="mActions" style="justify-content:center"></div>
+    <div class="row hidden" id="mTeamPick" style="justify-content:center"></div>
+  </section>
+</main>
+
+<script type="module" src="jow.js"></script>
+</body>
+</html>

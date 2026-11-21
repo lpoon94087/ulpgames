@@ -11,6 +11,7 @@ The start page lets you pick a game. Each game lives in its own folder and share
 | `password/` | Password | 1, or a moderator plus clue-giver and scoreboard screens |
 | `word-generator/` | Word Generator | 1, or a moderator plus any number of viewers |
 | `codenames/` | Codenames | 1+: the board on a big screen, the spymaster key on the spymasters' phones, synced through a room |
+| `one-word/` | Just One Word | 3+ phones and a host screen (TV or tablet): everyone writes a one-word clue at once; matching clues cancel out. Together, or two teams (4+ players, best with 6+) |
 
 ## Mad Gab
 
@@ -74,6 +75,19 @@ The board came from the stand-alone codenames repo, with its default picture set
 - **Sturdier rooms** — a turned card and any change of turn go to the room in one write; a screen that can't reach the database retries every few seconds and when the device comes back online; a game played while offline is pushed to the room when it reconnects, instead of the room's older game replacing it; a second tap less than a quarter of a second after the first only picks the card. Board screens alone fetch the pictures (phones never show them). One list file failing to load leaves out just that list.
 - **Big screens** — the board is as wide as the screen's height allows, so all 25 cards fit on a 1080p TV without scrolling, with words up to 44px.
 - **How to play** — in the menu, the rules in six steps.
+
+## Just One Word
+
+One player guesses a secret word. Everyone else on their team sees it on their phone and writes **one word** as a clue, all at once and without talking. Matching clues cancel out, so be original.
+
+- **Host** — the shared screen, for a TV or tablet: the room code and QR code, the players, the settings, and during play whose turn it is, who has sent a clue, the clues for the guesser (the word never shows until the guess is in) and *Right* / *Wrong* / *Pass* if it's a touchscreen. A reload carries on in the same room (for 6 hours); *Close room* in the menu gives it up.
+- **Player** — each phone scans the QR code (`one-word/?join=CODE`) and types a name. The guesser's phone never shows the word. Clue-givers type a clue (one word, no spaces, not the secret word or part of it) and can change it until everyone's in.
+- **Matching clues** — when every clue is in, the phones show them all with the matches crossed out: the same word, the same root (SNOW / SNOWY, RUN / RUNNING, CITY / CITIES, PRINCE / PRINCESS; not SNOW / SNOWMAN or STAR / START), or the secret word itself. Any clue-giver can tap a clue to cancel or keep it, then *Show the clues*. The host can also skip the wait.
+- **The guess** — the guesser sees the clues that are left (on the TV and their phone) and gets one guess, out loud. A clue-giver taps *Right* or *Wrong*; the guesser can *Pass*. Anyone taps *Next word*. Guessers take turns in the order players joined.
+- **Together** — everyone is one team, through a pile of 8, 13 or 20 words. Right scores one; a pass loses that word; a wrong guess loses it *and* the next one. The end says how you did.
+- **Two teams** — Red and Blue (or Team A and Team B). Players pick a team on their phone, or the host taps a name to move it or *Shuffle teams*. Each team needs at least 2 players (so 4 in all); 6 or more is best, since with 2 a team there's only one clue and nothing can cancel. The teams take turns, one word each, for 3, 5, 8 or 10 words a team; only the playing team writes clues, and the other team sees the word and the clues and watches. Most right answers wins.
+- **Words** — Password's list (`password/words.txt`) with its levels: all, easy only, or harder. The host's deck is saved so words don't repeat across games.
+- **Room** — `shareRoom` in `shared/rooms.js`, with each player's id kept on the phone (so a reload is the same player) and the host seeing who's online: an offline player isn't waited for and isn't picked to guess. The host deals each word and ends the game; the phones write their clues, cancel taps and the verdict.
 
 ## Offline
 
